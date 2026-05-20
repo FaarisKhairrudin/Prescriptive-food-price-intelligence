@@ -5,6 +5,7 @@ import re
 from tqdm import tqdm
 
 import pandas as pd
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 
@@ -186,12 +187,22 @@ def get_pihps_cabai_rawit_bandung(
 
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=headless)
-                page = browser.new_page()
+                context = browser.new_context(accept_downloads=True)
+                page = context.new_page()
+                page.set_default_timeout(60000)
+                page.set_default_navigation_timeout(90000)
 
                 try:
                     # 1. Buka halaman
-                    page.goto(PIHPS_URL, wait_until="networkidle")
-                    page.wait_for_timeout(5000)
+                    page.goto(PIHPS_URL, wait_until="domcontentloaded", timeout=90000)
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=15000)
+                    except PlaywrightTimeoutError:
+                        # Halaman BI sering tetap membuka request background.
+                        # Yang penting DOM utama sudah siap untuk interaksi.
+                        pass
+                    page.wait_for_selector("body", timeout=30000)
+                    page.wait_for_timeout(3000)
                     pbar.set_postfix_str("Halaman dimuat")
                     pbar.update(1)
 
@@ -244,6 +255,7 @@ def get_pihps_cabai_rawit_bandung(
                     pbar.update(1)
 
                 finally:
+                    context.close()
                     browser.close()
 
             # 9. Parse excel ke dataframe

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
 from backend.api.gemini_client import (
+    GeminiQuotaError,
     generate_gemini_json,
     generate_gemini_text,
     is_gemini_configured,
@@ -25,10 +27,10 @@ lain, tolak singkat dan arahkan kembali ke konsultasi stok cabai.
 Gunakan bahasa Indonesia yang natural, praktis, dan ramah untuk user non-teknis.
 Jangan menyebut nama arsitektur model teknis; sebut "AI Narapangan" atau
 "model prediksi harga". Jangan mengklaim kepastian. Gunakan hanya data konteks
-yang diberikan dan jangan mengarang harga. Tegaskan bahwa output adalah hasil
-prediksi untuk bahan pertimbangan. Hindari instruksi mutlak seperti "harus beli",
-"wajib", atau "beli sekarang"; gunakan "dapat dipertimbangkan", "sebaiknya
-dipertimbangkan", atau "opsi yang masuk akal".
+yang diberikan dan jangan mengarang harga. Hindari instruksi mutlak seperti
+"harus beli", "wajib", atau "beli sekarang"; gunakan bahasa pertimbangan yang
+tetap tegas, misalnya "opsi yang masuk akal", "bisa dipertimbangkan", atau
+"lebih aman dilakukan bertahap". Jangan mengulang disclaimer generik.
 """
 OUT_OF_SCOPE_KEYWORDS = {
     "coding",
@@ -117,6 +119,40 @@ def _clean_business_profile(profile: dict | None) -> dict:
     }
 
 
+def _clean_chat_history(history) -> list[dict[str, str]]:
+    if not isinstance(history, list):
+        return []
+
+    cleaned = []
+    for item in history[-8:]:
+        if not isinstance(item, dict):
+            continue
+
+        role = str(item.get("role") or "").strip().lower()
+        text = str(item.get("text") or "").strip()
+        if role not in {"user", "assistant"} or not text:
+            continue
+
+        cleaned.append({
+            "role": role,
+            "text": text[:900],
+        })
+
+    return cleaned
+
+
+def _chat_history_context(history: list[dict[str, str]]) -> str:
+    if not history:
+        return "Riwayat percakapan sesi ini: belum ada."
+
+    lines = []
+    for item in history:
+        speaker = "User" if item["role"] == "user" else "AI Narapangan"
+        lines.append(f"- {speaker}: {item['text']}")
+
+    return "Riwayat percakapan sesi ini:\n" + "\n".join(lines)
+
+
 def _business_profile_sentence(profile: dict) -> str:
     if not profile:
         return "Profil UMKM belum diisi, jadi pertimbangan dibuat secara umum."
@@ -136,6 +172,33 @@ def _business_profile_sentence(profile: dict) -> str:
         parts.append(f"fleksibilitas harga menu: {profile['can_adjust_price']}")
 
     return "Kondisi UMKM saat ini " + ", ".join(parts) + "."
+
+
+def _strip_redundant_disclaimer(text: str) -> str:
+    forbidden_phrases = (
+        "perlu diingat",
+        "hanya prediksi",
+        "hasil prediksi untuk bahan pertimbangan",
+        "bukan kepastian pasar",
+        "bukan merupakan kepastian",
+        "tidak menjamin",
+    )
+    sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+    kept = [
+        sentence
+        for sentence in sentences
+        if sentence
+        and not any(phrase in sentence.lower() for phrase in forbidden_phrases)
+    ]
+    return " ".join(kept).strip() or text.strip()
+
+
+def _clean_chat_reply(text: str) -> str:
+    clean = str(text or "").strip()
+    clean = re.sub(r"^\s{0,3}#{1,6}\s*", "", clean, flags=re.MULTILINE)
+    clean = re.sub(r"^\s*[-*]\s+", "- ", clean, flags=re.MULTILINE)
+    clean = re.sub(r"\n{3,}", "\n\n", clean)
+    return clean
 
 
 def build_rule_based_explanation(payload: dict, business_profile: dict | None = None) -> dict:
@@ -183,7 +246,7 @@ def build_rule_based_explanation(payload: dict, business_profile: dict | None = 
         f"dan titik rendah di {low_week['ds']} sekitar {_format_rupiah(low_week['predicted_price'])}/kg. "
         f"{hijri_note}"
         f"{_business_profile_sentence(business_profile)} "
-        f"Ini prediksi untuk bahan pertimbangan ya, sinyalnya {summary['signal_label']}. {posture}"
+        f"Sinyal utamanya {summary['signal_label']}. {posture}"
     )
 
     return {
@@ -249,17 +312,20 @@ def build_llm_explanation(payload: dict, business_profile: dict | None = None) -
 
     prompt = _forecast_context_for_prompt(payload, business_profile) + """
 
-Buat ringkasan singkat dan to the point setelah forecast.
+Buat insight analitik untuk kartu "Analisis AI Narapangan".
 Kembalikan JSON valid saja tanpa markdown dengan schema:
 {
-  "headline": "judul singkat maksimal 14 kata",
-    "body": "2-3 kalimat, gaya percakapan, fokus kondisi 4 minggu ke depan dan rekomendasi aksi. sebut harga minggu depan, rata-rata 4 minggu, dan satu minggu terbaik untuk tambah/kurangi stok. jika ada profil UMKM, sisipkan satu frasa ringkas. jangan jelaskan proses, jangan gunakan format titik dua",
+  "headline": "judul insight maksimal 12 kata, spesifik terhadap arah harga",
+  "body": "3 kalimat maksimal 90 kata. Kalimat 1 membaca arah harga dan menyebut harga saat ini, harga minggu depan, serta rata-rata 4 minggu. Kalimat 2 membaca pola mingguan, sebut minggu puncak atau minggu yang mulai melandai, dan kaitkan singkat dengan profil UMKM bila ada. Kalimat 3 beri opsi aksi yang proporsional untuk stok atau belanja, dengan bahasa pertimbangan yang tetap tegas.",
   "offer": "satu kalimat pendek ajakan konsultasi stok/modal"
 }
 
-Pastikan body tidak mengulang headline di awal. Jelaskan bahwa ini hasil prediksi
-untuk bahan pertimbangan, bukan kepastian pasar. Jangan menyuruh user membeli;
-gunakan bahasa seperti "dapat dipertimbangkan" atau "opsi yang masuk akal".
+Gaya harus seperti analis bisnis UMKM: natural, tajam, tidak kaku, tidak seperti
+template. Jangan menjelaskan proses model. Jangan memakai format titik dua.
+Jangan menulis disclaimer seperti "ini hanya prediksi", "bukan kepastian pasar",
+atau "perlu diingat"; disclaimer sudah ditampilkan terpisah di UI. Jangan
+menyuruh user membeli secara mutlak. Jika ingin menulis "Perlu diingat", hapus
+kalimat itu dan ganti dengan insight aksi yang lebih berguna.
 """
 
     try:
@@ -267,12 +333,16 @@ gunakan bahasa seperti "dapat dipertimbangkan" atau "opsi yang masuk akal".
             prompt=prompt,
             system_instruction=NARAPANGAN_SYSTEM_PROMPT,
         )
+    except GeminiQuotaError as exc:
+        fallback["llm_error"] = str(exc)
+        fallback["source"] = "rate_limited"
+        return fallback
     except Exception as exc:
         fallback["llm_error"] = str(exc)
         return fallback
 
     headline = str(data.get("headline") or fallback["headline"]).strip()
-    body = str(data.get("body") or fallback["body"]).strip()
+    body = _strip_redundant_disclaimer(str(data.get("body") or fallback["body"]))
     offer = str(data.get("offer") or fallback["offer"]).strip()
 
     return {
@@ -285,8 +355,14 @@ gunakan bahasa seperti "dapat dipertimbangkan" atau "opsi yang masuk akal".
     }
 
 
-def build_chat_reply(payload: dict, question: str, business_profile: dict | None = None) -> dict:
+def build_chat_reply(
+    payload: dict,
+    question: str,
+    business_profile: dict | None = None,
+    chat_history: list[dict[str, str]] | None = None,
+) -> dict:
     fallback_context = build_rule_based_explanation(payload, business_profile)
+    chat_history = chat_history or []
     if _is_obviously_out_of_scope(question):
         return {
             "reply": (
@@ -309,24 +385,41 @@ def build_chat_reply(payload: dict, question: str, business_profile: dict | None
 
     prompt = (
         _forecast_context_for_prompt(payload, business_profile)
+        + "\n\n"
+        + _chat_history_context(chat_history)
         + "\n\nPertanyaan user:\n"
         + question
         + "\n\nJawab langsung sebagai konsultan UMKM. Jika pertanyaan di luar domain "
         + "Narapangan, tolak singkat dan arahkan kembali ke topik prediksi harga cabai, "
         + "stok, pembelian, atau strategi UMKM. Jika pertanyaan relevan, gunakan angka "
-        + "forecast dan profil UMKM di atas. Jawab selesai dalam 3-5 kalimat atau "
-        + "maksimal 4 bullet. Jangan menggantung di tengah kalimat. Jangan menyebut "
-        + "nama arsitektur model teknis. Ingatkan bahwa jawaban adalah pertimbangan "
-        + "berbasis prediksi, bukan instruksi mutlak untuk membeli."
+        + "forecast dan profil UMKM di atas. Jawab seperti chat konsultasi bisnis, "
+        + "bukan template laporan. Gunakan 2-4 kalimat pendek atau maksimal 3 bullet "
+        + "pendek. Boleh pakai **tebal** atau *miring* hanya untuk angka atau istilah "
+        + "yang benar-benar penting. Jangan pakai heading atau label kaku seperti "
+        + "'Strategi:' dan 'Rekomendasi:'. Jangan menggantung di tengah kalimat. "
+        + "Jangan menyebut nama arsitektur model teknis. Jawaban harus berupa "
+        + "pertimbangan berbasis prediksi, bukan instruksi mutlak untuk membeli. "
+        + "Jika pertanyaan user merujuk jawaban sebelumnya, gunakan riwayat sesi "
+        + "untuk menjaga konteks."
     )
 
     try:
+        reply_text = generate_gemini_text(
+            prompt,
+            system_instruction=NARAPANGAN_SYSTEM_PROMPT,
+        )
         return {
-            "reply": generate_gemini_text(
-                prompt,
-                system_instruction=NARAPANGAN_SYSTEM_PROMPT,
-            ),
+            "reply": _clean_chat_reply(reply_text),
             "source": "gemini",
+        }
+    except GeminiQuotaError as exc:
+        return {
+            "reply": (
+                "Kuota Gemini sedang penuh, jadi saya pakai fallback sementara. "
+                + fallback_context["body"]
+            ),
+            "source": "rate_limited",
+            "llm_error": str(exc),
         }
     except Exception as exc:
         return {
@@ -401,6 +494,8 @@ class NarapanganHandler(BaseHTTPRequestHandler):
 
             source = payload.get("explanation", {}).get("source", "unknown")
             print(f"[predict] Selesai. explanation.source={source}")
+            if payload.get("explanation", {}).get("llm_error"):
+                print(f"[predict] LLM fallback: {payload['explanation']['llm_error']}")
 
             self._send_json(200, payload)
         except Exception as exc:
@@ -421,6 +516,7 @@ class NarapanganHandler(BaseHTTPRequestHandler):
             business_profile = _clean_business_profile(
                 request_body.get("business_profile")
             )
+            chat_history = _clean_chat_history(request_body.get("chat_history"))
 
             if not isinstance(payload, dict):
                 self._send_json(400, {"error": "Payload hasil prediksi belum tersedia."})
@@ -433,9 +529,12 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                 payload=payload,
                 question=question,
                 business_profile=business_profile,
+                chat_history=chat_history,
             )
             source = reply.get("source", "unknown")
             print(f"[chat] Selesai. reply.source={source}")
+            if reply.get("llm_error"):
+                print(f"[chat] LLM fallback: {reply['llm_error']}")
             self._send_json(200, reply)
         except Exception as exc:
             self._send_json(

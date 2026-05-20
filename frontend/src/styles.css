@@ -490,12 +490,6 @@ h1 {
   gap: 6px;
 }
 
-.profile-field small {
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
 .primary-button:disabled {
   cursor: wait;
   opacity: 0.78;
@@ -646,6 +640,39 @@ h1 {
   margin-bottom: 16px;
 }
 
+.analysis-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+.analysis-status {
+  display: inline-flex;
+  width: fit-content;
+  padding: 6px 9px;
+  border: 1px solid rgba(var(--sage-rgb), 0.2);
+  border-radius: 8px;
+  color: var(--sage);
+  background: var(--sage-soft);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.analysis-status.source-rate_limited,
+.analysis-status.source-rule_based {
+  border-color: rgba(var(--amber-rgb), 0.34);
+  color: #75551e;
+  background: var(--amber-soft);
+}
+
+.analysis-disclaimer {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .ai-offer {
   display: flex;
   align-items: center;
@@ -781,21 +808,54 @@ h1 {
   max-width: 760px;
 }
 
+.chat-disclaimer {
+  width: fit-content;
+  margin-top: -4px;
+  padding: 8px 10px;
+  border: 1px solid rgba(var(--amber-rgb), 0.28);
+  border-radius: 8px;
+  color: #75551e;
+  background: var(--amber-soft);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.quick-question-label {
+  margin: 16px 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
 .quick-questions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin: 16px 0;
+  gap: 7px;
+  margin: 0 0 16px;
 }
 
 .quick-questions button {
-  min-height: 36px;
-  padding: 0 11px;
-  border: 1px solid var(--line);
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid rgba(var(--line-rgb), 0.92);
   border-radius: 8px;
+  color: var(--body-text);
+  background: rgba(var(--paper-rgb), 0.72);
+  font-size: 13px;
+  font-weight: 650;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.quick-questions button:hover,
+.quick-questions button:focus-visible {
+  border-color: rgba(var(--sage-rgb), 0.32);
   color: var(--sage);
   background: var(--sage-soft);
-  font-weight: 750;
 }
 
 .chat-thread {
@@ -832,7 +892,7 @@ h1 {
   background: var(--sage);
 }
 
-.chat-bubble span {
+.chat-speaker {
   display: block;
   margin-bottom: 5px;
   font-size: 12px;
@@ -844,6 +904,14 @@ h1 {
   margin-bottom: 0;
   color: inherit;
   white-space: pre-wrap;
+}
+
+.chat-bubble strong {
+  font-weight: 850;
+}
+
+.chat-bubble em {
+  font-style: italic;
 }
 
 .chat-bubble small {

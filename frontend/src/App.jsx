@@ -120,6 +120,36 @@ function signalIcon(signalCode) {
   return <CheckCircle2 size={22} />;
 }
 
+function renderInlineMarkdown(text, keyPrefix) {
+  const parts = String(text || "").split(/(\*\*[^*\n]+?\*\*|\*[^*\n]+?\*)/g);
+
+  return parts.map((part, index) => {
+    const key = `${keyPrefix}-${index}`;
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={key}>{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith("*") && part.endsWith("*")) {
+      return <em key={key}>{part.slice(1, -1)}</em>;
+    }
+    return part;
+  });
+}
+
+function MarkdownText({ text }) {
+  const lines = String(text || "").split("\n");
+
+  return (
+    <p className="markdown-text">
+      {lines.map((line, index) => (
+        <span className="markdown-line" key={`line-${index}`}>
+          {renderInlineMarkdown(line, `line-${index}`)}
+          {index < lines.length - 1 ? <br /> : null}
+        </span>
+      ))}
+    </p>
+  );
+}
+
 function MetricCard({ label, value, detail, icon }) {
   return (
     <section className="metric-card">
@@ -189,7 +219,6 @@ function BusinessProfileForm({ profile, onChange }) {
             value={profile.daily_usage_kg}
             onChange={(event) => updateField("daily_usage_kg", event.target.value)}
           />
-          <small>Total cabai rawit merah yang dipakai usaha per hari, bukan jumlah biji cabai.</small>
         </ProfileField>
         <ProfileField label="Stok saat ini cukup untuk (hari)">
           <input
@@ -200,7 +229,6 @@ function BusinessProfileForm({ profile, onChange }) {
             value={profile.stock_days}
             onChange={(event) => updateField("stock_days", event.target.value)}
           />
-          <small>Perkiraan berapa hari stok cabai saat ini masih aman untuk operasional.</small>
         </ProfileField>
         <ProfileField label="Kapasitas simpan cabai (kg)">
           <input
@@ -211,7 +239,6 @@ function BusinessProfileForm({ profile, onChange }) {
             value={profile.storage_capacity_kg}
             onChange={(event) => updateField("storage_capacity_kg", event.target.value)}
           />
-          <small>Batas maksimal cabai yang nyaman disimpan tanpa mengganggu kualitas.</small>
         </ProfileField>
         <ProfileField label="Gaya belanja">
           <select
@@ -277,6 +304,10 @@ function ConsultationPanel({ payload, businessProfile }) {
     setStatus("running");
 
     try {
+      const chatHistory = messages.slice(-8).map((item) => ({
+        role: item.role,
+        text: item.text,
+      }));
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -284,6 +315,7 @@ function ConsultationPanel({ payload, businessProfile }) {
           payload,
           question: cleanQuestion,
           business_profile: businessProfile,
+          chat_history: chatHistory,
         }),
       });
       const data = await response.json();
@@ -328,7 +360,12 @@ function ConsultationPanel({ payload, businessProfile }) {
         Setelah forecast keluar, kamu bisa bertanya sesuai kondisi usaha. AI
         akan memakai hasil prediksi, profil UMKM, dan sinyal pengadaan terbaru.
       </p>
+      <p className="chat-disclaimer">
+        Jawaban AI berbasis hasil prediksi dan profil yang kamu isi. Gunakan
+        sebagai bahan bantu pertimbangan, bukan kepastian harga pasar.
+      </p>
 
+      <div className="quick-question-label">Contoh pertanyaan</div>
       <div className="quick-questions">
         {quickQuestions.map((item) => (
           <button key={item} type="button" onClick={() => setQuestion(item)}>
@@ -346,10 +383,16 @@ function ConsultationPanel({ payload, businessProfile }) {
         ) : (
           messages.map((item, index) => (
             <div className={`chat-bubble ${item.role}`} key={`${item.role}-${index}`}>
-              <span>{item.role === "user" ? "Kamu" : "AI Narapangan"}</span>
-              <p>{item.text}</p>
-              {item.source === "rule_based" ? (
-                <small>Fallback tanpa Gemini API</small>
+              <span className="chat-speaker">
+                {item.role === "user" ? "Kamu" : "AI Narapangan"}
+              </span>
+              <MarkdownText text={item.text} />
+              {item.source === "rule_based" || item.source === "rate_limited" ? (
+                <small>
+                  {item.source === "rate_limited"
+                    ? "Fallback karena kuota Gemini sedang penuh"
+                    : "Fallback tanpa Gemini API"}
+                </small>
               ) : null}
             </div>
           ))
@@ -417,6 +460,20 @@ function PredictionResults({ payload, previousPayload, businessProfile }) {
             <Sparkles size={22} />
           </div>
           <p>{payload.explanation.body}</p>
+          <div className="analysis-meta">
+            {payload.explanation.source ? (
+              <span className={`analysis-status source-${payload.explanation.source}`}>
+                {payload.explanation.source === "gemini"
+                  ? "Gemini aktif"
+                  : payload.explanation.source === "rate_limited"
+                    ? "Fallback sementara"
+                    : "Insight lokal"}
+              </span>
+            ) : null}
+            <span className="analysis-disclaimer">
+              Estimasi prediksi, bukan kepastian pasar. Sesuaikan dengan stok, modal, dan pemasok.
+            </span>
+          </div>
           {payload.explanation.offer ? (
             <a
               className="ai-offer"
