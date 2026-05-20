@@ -1,0 +1,7 @@
+pandas
+requests
+tqdm
+playwright
+hijri-converter
+neuralforecast
+torch

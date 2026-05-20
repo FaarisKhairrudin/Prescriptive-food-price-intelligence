@@ -1,0 +1,462 @@
+from __future__ import annotations
+
+import json
+from datetime import datetime
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse
+
+from backend.api.gemini_client import (
+    generate_gemini_json,
+    generate_gemini_text,
+    is_gemini_configured,
+)
+from backend.pipeline.main_pipeline import build_web_payload, run_narapangan_pipeline
+
+
+HOST = "127.0.0.1"
+PORT = 8000
+NARAPANGAN_SYSTEM_PROMPT = """
+Kamu adalah AI Narapangan, analis pengadaan cabai untuk UMKM F&B Bandung.
+Jawab hanya topik prediksi harga cabai, strategi stok/pembelian, UMKM makanan,
+cuaca Garut, kalender Hijriah, dan hasil forecast Narapangan. Jika user bertanya
+di luar domain seperti coding, matematika umum, PR, esai, hiburan, atau topik
+lain, tolak singkat dan arahkan kembali ke konsultasi stok cabai.
+
+Gunakan bahasa Indonesia yang natural, praktis, dan ramah untuk user non-teknis.
+Jangan menyebut nama arsitektur model teknis; sebut "AI Narapangan" atau
+"model prediksi harga". Jangan mengklaim kepastian. Gunakan hanya data konteks
+yang diberikan dan jangan mengarang harga. Tegaskan bahwa output adalah hasil
+prediksi untuk bahan pertimbangan. Hindari instruksi mutlak seperti "harus beli",
+"wajib", atau "beli sekarang"; gunakan "dapat dipertimbangkan", "sebaiknya
+dipertimbangkan", atau "opsi yang masuk akal".
+"""
+OUT_OF_SCOPE_KEYWORDS = {
+    "coding",
+    "koding",
+    "python",
+    "javascript",
+    "java",
+    "html",
+    "css",
+    "sql",
+    "algoritma",
+    "integral",
+    "turunan",
+    "limit fungsi",
+    "matematika",
+    "pr ",
+    "pekerjaan rumah",
+    "essay",
+    "esai",
+    "terjemahkan",
+    "translate",
+    "puisi",
+}
+IN_SCOPE_KEYWORDS = {
+    "cabai",
+    "cabe",
+    "harga",
+    "stok",
+    "umkm",
+    "usaha",
+    "prediksi",
+    "belanja",
+    "beli",
+    "pemasok",
+    "menu",
+    "modal",
+    "kg",
+    "kilogram",
+    "seblak",
+    "geprek",
+    "sambal",
+    "warung",
+}
+
+
+def _json_default(value):
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
+def _format_rupiah(value: float | int) -> str:
+    return f"Rp {int(round(value)):,.0f}".replace(",", ".")
+
+
+def _format_number(value) -> str:
+    try:
+        return f"{float(value):.2f}"
+    except (TypeError, ValueError):
+        return "-"
+
+
+def _is_obviously_out_of_scope(question: str) -> bool:
+    text = f" {question.lower()} "
+    has_out_scope_word = any(keyword in text for keyword in OUT_OF_SCOPE_KEYWORDS)
+    has_in_scope_word = any(keyword in text for keyword in IN_SCOPE_KEYWORDS)
+    return has_out_scope_word and not has_in_scope_word
+
+
+def _clean_business_profile(profile: dict | None) -> dict:
+    if not isinstance(profile, dict):
+        return {}
+
+    allowed_keys = {
+        "business_type",
+        "daily_usage_kg",
+        "stock_days",
+        "storage_capacity_kg",
+        "buying_style",
+        "can_adjust_price",
+    }
+    return {
+        key: str(value).strip()
+        for key, value in profile.items()
+        if key in allowed_keys and str(value).strip()
+    }
+
+
+def _business_profile_sentence(profile: dict) -> str:
+    if not profile:
+        return "Profil UMKM belum diisi, jadi pertimbangan dibuat secara umum."
+
+    parts = []
+    if profile.get("business_type"):
+        parts.append(f"jenis usaha {profile['business_type']}")
+    if profile.get("daily_usage_kg"):
+        parts.append(f"pemakaian cabai sekitar {profile['daily_usage_kg']} kg/hari")
+    if profile.get("stock_days"):
+        parts.append(f"stok saat ini cukup untuk {profile['stock_days']} hari")
+    if profile.get("storage_capacity_kg"):
+        parts.append(f"kapasitas simpan sekitar {profile['storage_capacity_kg']} kg")
+    if profile.get("buying_style"):
+        parts.append(f"gaya belanja {profile['buying_style']}")
+    if profile.get("can_adjust_price"):
+        parts.append(f"fleksibilitas harga menu: {profile['can_adjust_price']}")
+
+    return "Kondisi UMKM saat ini " + ", ".join(parts) + "."
+
+
+def build_rule_based_explanation(payload: dict, business_profile: dict | None = None) -> dict:
+    summary = payload["summary"]
+    forecast = payload["forecast"]
+    business_profile = _clean_business_profile(business_profile)
+
+    first_forecast = forecast[0]
+    peak_week = max(forecast, key=lambda row: row["predicted_price"])
+    low_week = min(forecast, key=lambda row: row["predicted_price"])
+
+    active_hijri = []
+    for row in forecast:
+        if row.get("is_ramadan"):
+            active_hijri.append(f"Ramadan pada minggu {row['week']}")
+        if row.get("is_idul_fitri"):
+            active_hijri.append(f"Idul Fitri pada minggu {row['week']}")
+        if row.get("is_idul_adha"):
+            active_hijri.append(f"Idul Adha pada minggu {row['week']}")
+
+    if summary["signal_code"] == "stock_early":
+        posture = (
+            f"Kenaikan mulai terasa menjelang {peak_week['ds']}, jadi "
+            "boleh dipertimbangkan menambah sebagian stok lebih awal dan "
+            "prioritaskan menu yang paling bergantung pada cabai."
+        )
+    elif summary["signal_code"] == "hold_purchase":
+        posture = (
+            f"Karena ada peluang harga lebih rendah di sekitar {low_week['ds']}, "
+            "pembelian besar bisa dipertimbangkan ditahan dulu sambil belanja bertahap."
+        )
+    else:
+        posture = (
+            f"Pergerakan cenderung stabil, jadi pola belanja normal masih masuk akal, "
+            f"dengan pantauan lebih dekat menjelang {peak_week['ds']}."
+        )
+
+    hijri_note = f"Ada {', '.join(active_hijri)} yang bisa memberi tekanan harga. " if active_hijri else ""
+    narrative = (
+        f"Minggu depan diperkirakan sekitar {_format_rupiah(first_forecast['predicted_price'])}/kg "
+        f"dengan rata-rata 4 minggu di {_format_rupiah(summary['avg_predicted_price'])}/kg "
+        f"atau {summary['pct_change_avg']:+.2f}% dari harga terakhir "
+        f"{_format_rupiah(summary['last_actual_price'])}/kg. "
+        f"Puncak ada di {peak_week['ds']} sekitar {_format_rupiah(peak_week['predicted_price'])}/kg "
+        f"dan titik rendah di {low_week['ds']} sekitar {_format_rupiah(low_week['predicted_price'])}/kg. "
+        f"{hijri_note}"
+        f"{_business_profile_sentence(business_profile)} "
+        f"Ini prediksi untuk bahan pertimbangan ya, sinyalnya {summary['signal_label']}. {posture}"
+    )
+
+    return {
+        "title": "Analisis AI Narapangan",
+        "headline": f"AI Narapangan melihat: {summary['signal_label']}",
+        "body": narrative,
+        "offer": (
+            "Punya skenario stok atau modal tertentu? Lanjutkan di konsultasi "
+            "AI untuk menimbang strategi pembelian."
+        ),
+        "drivers": [
+            "Harga historis cabai rawit merah Bandung",
+            "Suhu Garut lag 8 minggu",
+            "Kelembaban Garut lag 13 minggu",
+            "Kalender Ramadan, Idul Fitri, dan Idul Adha",
+        ],
+        "source": "rule_based",
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+def _forecast_context_for_prompt(payload: dict, business_profile: dict | None = None) -> str:
+    summary = payload["summary"]
+    forecast_lines = []
+    for row in payload["forecast"]:
+        calendar_bits = []
+        if row.get("is_ramadan"):
+            calendar_bits.append("Ramadan")
+        if row.get("is_idul_fitri"):
+            calendar_bits.append("Idul Fitri")
+        if row.get("is_idul_adha"):
+            calendar_bits.append("Idul Adha")
+        calendar = ", ".join(calendar_bits) if calendar_bits else "normal"
+        forecast_lines.append(
+            f"- Minggu {row['week']} ({row['ds']}): prediksi "
+            f"{_format_rupiah(row['predicted_price'])}/kg, perubahan "
+            f"{row['change_from_last_pct']:+.2f}%, kalender {calendar}, "
+            f"suhu Garut lag 8 minggu {_format_number(row.get('Garut_T2M_lag8w'))} C, "
+            f"kelembaban Garut lag 13 minggu {_format_number(row.get('Garut_RH2M_lag13w'))}%"
+        )
+
+    return "\n".join(
+        [
+            "Ringkasan prediksi:",
+            f"- Harga terakhir: {_format_rupiah(summary['last_actual_price'])}/kg pada {summary['last_actual_date']}",
+            f"- Rata-rata prediksi 4 minggu: {_format_rupiah(summary['avg_predicted_price'])}/kg",
+            f"- Perubahan rata-rata: {summary['pct_change_avg']:+.2f}%",
+            f"- Sinyal sistem: {summary['signal_label']}",
+            f"- Pertimbangan awal sistem: {summary['recommendation']}",
+            "",
+            "Rincian 4 minggu ke depan:",
+            "\n".join(forecast_lines),
+            "",
+            _business_profile_sentence(_clean_business_profile(business_profile)),
+        ]
+    )
+
+
+def build_llm_explanation(payload: dict, business_profile: dict | None = None) -> dict:
+    fallback = build_rule_based_explanation(payload, business_profile)
+    if not is_gemini_configured():
+        return fallback
+
+    prompt = _forecast_context_for_prompt(payload, business_profile) + """
+
+Buat ringkasan singkat dan to the point setelah forecast.
+Kembalikan JSON valid saja tanpa markdown dengan schema:
+{
+  "headline": "judul singkat maksimal 14 kata",
+    "body": "2-3 kalimat, gaya percakapan, fokus kondisi 4 minggu ke depan dan rekomendasi aksi. sebut harga minggu depan, rata-rata 4 minggu, dan satu minggu terbaik untuk tambah/kurangi stok. jika ada profil UMKM, sisipkan satu frasa ringkas. jangan jelaskan proses, jangan gunakan format titik dua",
+  "offer": "satu kalimat pendek ajakan konsultasi stok/modal"
+}
+
+Pastikan body tidak mengulang headline di awal. Jelaskan bahwa ini hasil prediksi
+untuk bahan pertimbangan, bukan kepastian pasar. Jangan menyuruh user membeli;
+gunakan bahasa seperti "dapat dipertimbangkan" atau "opsi yang masuk akal".
+"""
+
+    try:
+        data = generate_gemini_json(
+            prompt=prompt,
+            system_instruction=NARAPANGAN_SYSTEM_PROMPT,
+        )
+    except Exception as exc:
+        fallback["llm_error"] = str(exc)
+        return fallback
+
+    headline = str(data.get("headline") or fallback["headline"]).strip()
+    body = str(data.get("body") or fallback["body"]).strip()
+    offer = str(data.get("offer") or fallback["offer"]).strip()
+
+    return {
+        **fallback,
+        "headline": headline,
+        "body": body,
+        "offer": offer,
+        "source": "gemini",
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+def build_chat_reply(payload: dict, question: str, business_profile: dict | None = None) -> dict:
+    fallback_context = build_rule_based_explanation(payload, business_profile)
+    if _is_obviously_out_of_scope(question):
+        return {
+            "reply": (
+                "Saya hanya bisa membantu konsultasi seputar prediksi harga cabai, "
+                "stok, pembelian, dan keputusan UMKM berdasarkan hasil Narapangan. "
+                "Coba tanyakan strategi belanja cabai atau risiko harga minggu depan."
+            ),
+            "source": "guardrail",
+        }
+
+    if not is_gemini_configured():
+        return {
+            "reply": (
+                "Mode konsultasi AI belum aktif karena GEMINI_API_KEY belum tersedia. "
+                "Namun berdasarkan sinyal saat ini: "
+                + fallback_context["body"]
+            ),
+            "source": "rule_based",
+        }
+
+    prompt = (
+        _forecast_context_for_prompt(payload, business_profile)
+        + "\n\nPertanyaan user:\n"
+        + question
+        + "\n\nJawab langsung sebagai konsultan UMKM. Jika pertanyaan di luar domain "
+        + "Narapangan, tolak singkat dan arahkan kembali ke topik prediksi harga cabai, "
+        + "stok, pembelian, atau strategi UMKM. Jika pertanyaan relevan, gunakan angka "
+        + "forecast dan profil UMKM di atas. Jawab selesai dalam 3-5 kalimat atau "
+        + "maksimal 4 bullet. Jangan menggantung di tengah kalimat. Jangan menyebut "
+        + "nama arsitektur model teknis. Ingatkan bahwa jawaban adalah pertimbangan "
+        + "berbasis prediksi, bukan instruksi mutlak untuk membeli."
+    )
+
+    try:
+        return {
+            "reply": generate_gemini_text(
+                prompt,
+                system_instruction=NARAPANGAN_SYSTEM_PROMPT,
+            ),
+            "source": "gemini",
+        }
+    except Exception as exc:
+        return {
+            "reply": (
+                "AI konsultasi sedang gagal dipanggil. Sebagai fallback, "
+                + fallback_context["body"]
+            ),
+            "source": "rule_based",
+            "llm_error": str(exc),
+        }
+
+
+class NarapanganHandler(BaseHTTPRequestHandler):
+    def _send_json(self, status_code: int, body: dict):
+        encoded = json.dumps(body, default=_json_default).encode("utf-8")
+        self.send_response(status_code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.end_headers()
+        self.wfile.write(encoded)
+
+    def _read_json(self) -> dict:
+        content_length = int(self.headers.get("Content-Length", "0"))
+        if content_length == 0:
+            return {}
+
+        raw_body = self.rfile.read(content_length).decode("utf-8")
+        return json.loads(raw_body)
+
+    def do_OPTIONS(self):
+        self._send_json(200, {"ok": True})
+
+    def do_GET(self):
+        path = urlparse(self.path).path
+        if path == "/api/health":
+            self._send_json(200, {"ok": True, "service": "narapangan-api"})
+            return
+
+        self._send_json(404, {"error": "Endpoint tidak ditemukan."})
+
+    def do_POST(self):
+        path = urlparse(self.path).path
+        if path == "/api/chat":
+            self._handle_chat()
+            return
+
+        if path != "/api/predict":
+            self._send_json(404, {"error": "Endpoint tidak ditemukan."})
+            return
+
+        try:
+            print("[predict] Request diterima")
+            request_body = self._read_json()
+            end_date = request_body.get("end_date") or None
+            business_profile = _clean_business_profile(
+                request_body.get("business_profile")
+            )
+
+            pipeline_result = run_narapangan_pipeline(
+                end_date=end_date,
+                headless=True,
+            )
+            payload = build_web_payload(pipeline_result)
+            payload["explanation"] = build_llm_explanation(
+                payload,
+                business_profile=business_profile,
+            )
+            payload["business_profile"] = business_profile
+
+            source = payload.get("explanation", {}).get("source", "unknown")
+            print(f"[predict] Selesai. explanation.source={source}")
+
+            self._send_json(200, payload)
+        except Exception as exc:
+            self._send_json(
+                500,
+                {
+                    "error": "Pipeline prediksi gagal dijalankan.",
+                    "detail": str(exc),
+                },
+            )
+
+    def _handle_chat(self):
+        try:
+            print("[chat] Request diterima")
+            request_body = self._read_json()
+            payload = request_body.get("payload")
+            question = str(request_body.get("question") or "").strip()
+            business_profile = _clean_business_profile(
+                request_body.get("business_profile")
+            )
+
+            if not isinstance(payload, dict):
+                self._send_json(400, {"error": "Payload hasil prediksi belum tersedia."})
+                return
+            if not question:
+                self._send_json(400, {"error": "Pertanyaan tidak boleh kosong."})
+                return
+
+            reply = build_chat_reply(
+                payload=payload,
+                question=question,
+                business_profile=business_profile,
+            )
+            source = reply.get("source", "unknown")
+            print(f"[chat] Selesai. reply.source={source}")
+            self._send_json(200, reply)
+        except Exception as exc:
+            self._send_json(
+                500,
+                {
+                    "error": "Konsultasi AI gagal dijalankan.",
+                    "detail": str(exc),
+                },
+            )
+
+    def log_message(self, format, *args):
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        print(f"[{timestamp}] {self.address_string()} - {format % args}")
+
+
+def run_server(host: str = HOST, port: int = PORT):
+    server = ThreadingHTTPServer((host, port), NarapanganHandler)
+    print(f"Narapangan API running at http://{host}:{port}")
+    print("Endpoint: POST /api/predict")
+    server.serve_forever()
+
+
+if __name__ == "__main__":
+    run_server()
