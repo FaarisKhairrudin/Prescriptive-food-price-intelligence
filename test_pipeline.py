@@ -1,0 +1,2 @@
+from backend.pipeline.main_pipeline import run_narapangan_pipeline
+run_narapangan_pipeline()

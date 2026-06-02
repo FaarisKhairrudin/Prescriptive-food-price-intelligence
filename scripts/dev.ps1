@@ -1,10 +1,15 @@
 $ErrorActionPreference = "Stop"
 
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
-$Python = "C:\Program Files\Python312\python.exe"
+$VenvPython = Join-Path $Root ".venv\Scripts\python.exe"
 
-if (-not (Test-Path $Python)) {
-    $Python = "py"
+if (Test-Path $VenvPython) {
+    $Python = $VenvPython
+} else {
+    $Python = "C:\Program Files\Python312\python.exe"
+    if (-not (Test-Path $Python)) {
+        $Python = "py"
+    }
 }
 
 $BackendCmd = if ($Python -eq "py") {
@@ -20,6 +25,22 @@ Start-Process -FilePath "powershell" -ArgumentList @(
     "-Command",
     $BackendCommand
 ) -WorkingDirectory $Root
+
+$FrontendDir = Join-Path $Root "frontend"
+$FrontendNodeModules = Join-Path $FrontendDir "node_modules"
+
+if (-not (Test-Path $FrontendNodeModules)) {
+    Write-Host "Frontend dependencies missing. Installing dependencies in $FrontendDir..." -ForegroundColor Yellow
+    Push-Location $FrontendDir
+    try {
+        npm install
+    } catch {
+        Write-Error "Failed to install frontend dependencies. Run 'cd frontend; npm install' manually and retry."
+        exit 1
+    } finally {
+        Pop-Location
+    }
+}
 
 try {
     Start-Sleep -Seconds 3

@@ -385,6 +385,29 @@ def build_prediction_input_datasets(
     )
 
 
+def _ensure_neuralforecast_lightning_compatibility() -> None:
+    """Ensure legacy NeuralForecast imports work with newer PyTorch Lightning layouts."""
+
+    try:
+        import logging
+        import types
+        import pytorch_lightning as pl
+
+        if not hasattr(pl, "utilities"):
+            pl.utilities = types.SimpleNamespace()
+        if not hasattr(pl.utilities, "distributed"):
+            pl.utilities.distributed = types.SimpleNamespace()
+        if not hasattr(pl.utilities.distributed, "log"):
+            class _NoopLog:
+                @staticmethod
+                def setLevel(level):
+                    return
+
+            pl.utilities.distributed.log = _NoopLog
+    except Exception:
+        pass
+
+
 def load_saved_forecast_model(model_dir: str | Path = DEFAULT_MODEL_DIR):
     """
     Load model NeuralForecast yang sudah disimpan dari notebook modelling.
@@ -395,9 +418,28 @@ def load_saved_forecast_model(model_dir: str | Path = DEFAULT_MODEL_DIR):
     if not model_dir.exists():
         raise FileNotFoundError(f"Folder model tidak ditemukan: {model_dir}")
 
-    from neuralforecast import NeuralForecast
+    _ensure_neuralforecast_lightning_compatibility()
 
-    return NeuralForecast.load(str(model_dir))
+    from neuralforecast import NeuralForecast
+    import torch
+    from neuralforecast.losses.pytorch import MAE
+
+    with torch.serialization.safe_globals([MAE]):
+        nf_model = NeuralForecast.load(str(model_dir))
+        
+    # Hotfix for PyTorch Lightning >= 2.0.0
+    import pytorch_lightning as pl
+    import inspect
+    valid_kwargs = set(inspect.signature(pl.Trainer.__init__).parameters.keys())
+    
+    for m in getattr(nf_model, "models", []):
+        if hasattr(m, "trainer_kwargs"):
+            m.trainer_kwargs = {k: v for k, v in m.trainer_kwargs.items() if k in valid_kwargs}
+            # Force auto accelerator so it works on machines without GPU
+            if "accelerator" in m.trainer_kwargs and not torch.cuda.is_available():
+                m.trainer_kwargs["accelerator"] = "auto"
+            
+    return nf_model
 
 
 def predict_future_prices(
