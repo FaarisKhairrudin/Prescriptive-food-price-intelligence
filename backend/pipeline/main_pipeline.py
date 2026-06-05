@@ -581,7 +581,7 @@ def predict_future_prices(
     # Save forecasts to DB
     try:
         conn = get_connection()
-        forecast_date = pd.Timestamp.today().strftime("%Y-%m-%d")
+        forecast_date = pd.to_datetime(train_df["ds"].max()).strftime("%Y-%m-%d")
         for _, row in prediction_df.iterrows():
             target_date = pd.to_datetime(row["ds"]).strftime("%Y-%m-%d")
             conn.execute("""
