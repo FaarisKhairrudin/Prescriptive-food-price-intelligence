@@ -12,7 +12,13 @@ from backend.api.gemini_client import (
     generate_gemini_text,
     is_gemini_configured,
 )
-from backend.pipeline.main_pipeline import build_web_payload, run_narapangan_pipeline
+from backend.pipeline.main_pipeline import (
+    build_web_payload,
+    run_narapangan_pipeline,
+    load_payload_from_cache,
+    save_payload_to_cache,
+    reconstruct_web_payload_from_db
+)
 from backend.database import get_connection
 from backend.api.auth import verify_password, create_token, verify_token
 
@@ -767,11 +773,28 @@ class NarapanganHandler(BaseHTTPRequestHandler):
             else:
                 business_profile = {}
 
-            pipeline_result = run_narapangan_pipeline(
-                end_date=end_date,
-                headless=True,
-            )
-            payload = build_web_payload(pipeline_result)
+            # 1. Try loading from cache file
+            payload = load_payload_from_cache()
+            
+            if payload:
+                print("[predict] Cache hit: Loaded from latest_payload.json")
+            else:
+                print("[predict] Cache miss: Attempting DB reconstruction...")
+                # 2. Try database reconstruction
+                payload = reconstruct_web_payload_from_db()
+                if payload:
+                    print("[predict] DB reconstruction successful.")
+                    save_payload_to_cache(payload)
+                else:
+                    print("[predict] DB is empty/incomplete. Running pipeline synchronously...")
+                    pipeline_result = run_narapangan_pipeline(
+                        end_date=end_date,
+                        headless=True,
+                    )
+                    payload = build_web_payload(pipeline_result)
+                    save_payload_to_cache(payload)
+
+            # 3. Generate dynamic LLM explanation tailored to user's profile
             payload["explanation"] = build_llm_explanation(
                 payload,
                 business_profile=business_profile,

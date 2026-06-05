@@ -21,3 +21,4 @@ lightning_logs/
 logs/
 .env
 *.db
+backend/data_cache/

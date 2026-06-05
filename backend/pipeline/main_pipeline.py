@@ -760,6 +760,128 @@ def build_web_payload(pipeline_result: dict) -> dict:
     }
 
 
+CACHE_PAYLOAD_FILE = PROJECT_BACKEND_DIR / "data_cache" / "latest_payload.json"
+
+def save_payload_to_cache(payload: dict) -> None:
+    """Saves the compiled forecast payload dict to the data_cache directory as JSON."""
+    try:
+        import json
+        cache_dir = CACHE_PAYLOAD_FILE.parent
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Make a copy and ensure dates are strings
+        save_data = payload.copy()
+        
+        with open(CACHE_PAYLOAD_FILE, "w", encoding="utf-8") as f:
+            json.dump(save_data, f, ensure_ascii=False, indent=2)
+        print(f"[CACHE] Payload saved successfully to {CACHE_PAYLOAD_FILE}")
+    except Exception as e:
+        print(f"[CACHE] Error saving payload to cache: {e}")
+
+def load_payload_from_cache() -> dict | None:
+    """Loads the cached forecast payload dict from the data_cache directory."""
+    try:
+        import json
+        if not CACHE_PAYLOAD_FILE.exists():
+            return None
+            
+        with open(CACHE_PAYLOAD_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"[CACHE] Error reading payload from cache: {e}")
+        return None
+
+def reconstruct_web_payload_from_db(forecast_date: str | None = None) -> dict | None:
+    """
+    Reconstructs the full web payload from SQLite database tables (prices, forecasts)
+    without running the ML model or the scraper. Runs in <10ms.
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        # If forecast_date is not specified, get the latest one from the database
+        if forecast_date is None:
+            cursor.execute("SELECT MAX(forecast_date) FROM forecasts")
+            row = cursor.fetchone()
+            if not row or not row[0]:
+                conn.close()
+                return None
+            forecast_date = row[0]
+
+        # 1. Fetch history from prices
+        # We need the last 52 prices up to the forecast_date
+        cursor.execute("""
+            SELECT date, price_per_kg 
+            FROM prices 
+            WHERE commodity = 'Cabai Rawit Merah' AND market = 'Pasar Caringin'
+              AND date <= ?
+            ORDER BY date ASC
+        """, (forecast_date,))
+        price_rows = cursor.fetchall()
+        if not price_rows:
+            conn.close()
+            return None
+
+        # Build train_df representation
+        train_data = []
+        for r in price_rows:
+            train_data.append({
+                "unique_id": UNIQUE_ID,
+                "ds": pd.to_datetime(r["date"]),
+                "y": float(r["price_per_kg"])
+            })
+        train_df = pd.DataFrame(train_data)
+
+        # 2. Fetch forecasts
+        cursor.execute("""
+            SELECT target_date, predicted_price
+            FROM forecasts
+            WHERE forecast_date = ? AND model_version = 'NBEATSx'
+            ORDER BY target_date ASC
+        """, (forecast_date,))
+        forecast_rows = cursor.fetchall()
+        if not forecast_rows:
+            conn.close()
+            return None
+
+        pred_data = []
+        for r in forecast_rows:
+            pred_data.append({
+                "unique_id": UNIQUE_ID,
+                "ds": pd.to_datetime(r["target_date"]),
+                "predicted_price": float(r["predicted_price"])
+            })
+        prediction_df = pd.DataFrame(pred_data)
+        conn.close()
+
+        # Generate Hijri features for target dates to get holiday flags
+        start_target = prediction_df["ds"].min().strftime("%Y-%m-%d")
+        end_target = prediction_df["ds"].max().strftime("%Y-%m-%d")
+        
+        # generate_hijri_features freq must match W-MON
+        futr_df = generate_hijri_features(start_target, end_target, freq="W-MON")
+        futr_df["ds"] = pd.to_datetime(futr_df["ds"])
+        futr_df["unique_id"] = UNIQUE_ID
+
+        # Reconstruct the prediction report
+        report = build_prediction_report(
+            train_df=train_df,
+            futr_df=futr_df,
+            prediction_df=prediction_df
+        )
+
+        # Build web payload
+        payload = build_web_payload(report)
+        payload["forecast_date"] = forecast_date
+        return payload
+    except Exception as e:
+        print(f"[RECONSTRUCT] Error reconstructing payload from SQLite: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # RUN
 # ─────────────────────────────────────────────────────────────────────────────
