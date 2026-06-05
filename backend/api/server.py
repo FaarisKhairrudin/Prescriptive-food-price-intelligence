@@ -882,7 +882,54 @@ class NarapanganHandler(BaseHTTPRequestHandler):
         print(f"[{timestamp}] {self.address_string()} - {format % args}")
 
 
+def run_scheduler_loop():
+    import time
+    import threading
+    from backend.database import get_connection
+
+    print("[SERVER-SCHEDULER] Background scheduler thread initiated.")
+    # Wait 5 seconds after server startup before checking
+    time.sleep(5)
+
+    while True:
+        try:
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            
+            # Check crawls table in SQLite
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM crawls WHERE run_date = ?", (today_str,))
+            already_run = cursor.fetchone()[0] > 0
+            conn.close()
+            
+            if not already_run:
+                print(f"[SERVER-SCHEDULER] Forecast for today ({today_str}) is missing. Launching pipeline update in background...")
+                try:
+                    # Execute daily forecast and write JSON cache
+                    pipeline_result = run_narapangan_pipeline(headless=True)
+                    payload = build_web_payload(pipeline_result)
+                    save_payload_to_cache(payload)
+                    print(f"[SERVER-SCHEDULER] Forecast update completed successfully for {today_str}.")
+                except Exception as inner_e:
+                    print(f"[SERVER-SCHEDULER] Pipeline run failed: {inner_e}. Will retry in 15 minutes...")
+                    time.sleep(15 * 60)
+                    continue
+            else:
+                # Cache is fresh for today, idle check is complete.
+                pass
+        except Exception as e:
+            print(f"[SERVER-SCHEDULER] Error in scheduler loop: {e}")
+
+        # Check again in 1 hour
+        time.sleep(60 * 60)
+
+
 def run_server(host: str = HOST, port: int = PORT):
+    # Spawn background scheduler loop
+    import threading
+    scheduler_thread = threading.Thread(target=run_scheduler_loop, daemon=True)
+    scheduler_thread.start()
+
     server = ThreadingHTTPServer((host, port), NarapanganHandler)
     print(f"Narapangan API running at http://{host}:{port}")
     print("Endpoint: POST /api/predict")
