@@ -23,6 +23,9 @@ from backend.database import get_connection
 from backend.api.auth import verify_password, create_token, verify_token
 
 
+PIPELINE_LOCK = threading.Lock()
+IS_PIPELINE_RUNNING = False
+
 HOST = "127.0.0.1"
 PORT = 8000
 NARAPANGAN_SYSTEM_PROMPT = """
@@ -786,13 +789,46 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                     print("[predict] DB reconstruction successful.")
                     save_payload_to_cache(payload)
                 else:
-                    print("[predict] DB is empty/incomplete. Running pipeline synchronously...")
-                    pipeline_result = run_narapangan_pipeline(
-                        end_date=end_date,
-                        headless=True,
-                    )
-                    payload = build_web_payload(pipeline_result)
-                    save_payload_to_cache(payload)
+                    # Database is empty. Trigger async pipeline execution and return 202.
+                    global IS_PIPELINE_RUNNING
+                    already_running = False
+                    with PIPELINE_LOCK:
+                        if IS_PIPELINE_RUNNING:
+                            already_running = True
+                        else:
+                            IS_PIPELINE_RUNNING = True
+                    
+                    if already_running:
+                        print("[predict] Pipeline is already running in background.")
+                        self._send_json(202, {
+                            "status": "generating",
+                            "message": "Analisis harga baru sedang diproses..."
+                        })
+                        return
+                    else:
+                        print("[predict] DB is empty. Starting background pipeline execution...")
+                        def run_pipeline_async():
+                            global IS_PIPELINE_RUNNING
+                            try:
+                                pipeline_result = run_narapangan_pipeline(headless=True)
+                                p = build_web_payload(pipeline_result)
+                                save_payload_to_cache(p)
+                                print("[ASYNC-PIPELINE] Completed successfully. Cache populated.")
+                            except Exception as async_err:
+                                print(f"[ASYNC-PIPELINE] Error running background pipeline: {async_err}")
+                            finally:
+                                with PIPELINE_LOCK:
+                                    IS_PIPELINE_RUNNING = False
+
+                        import threading
+                        t = threading.Thread(target=run_pipeline_async, daemon=True)
+                        t.start()
+                        
+                        self._send_json(202, {
+                            "status": "generating",
+                            "message": "Analisis harga baru sedang diproses..."
+                        })
+                        return
 
             # 3. Generate dynamic LLM explanation tailored to user's profile
             payload["explanation"] = build_llm_explanation(

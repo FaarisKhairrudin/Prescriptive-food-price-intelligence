@@ -85,6 +85,12 @@ export function AppProvider({ children }) {
       const data = await predictRes.json();
       if (!predictRes.ok) throw new Error(data.detail || data.error || "Gagal mengambil data prediksi.");
       
+      if (data.status === "generating") {
+        console.log("[AppContext] Forecast is generating. Starting background poll...");
+        pollPredictions(1);
+        return;
+      }
+      
       const enriched = { ...data, saved_at: new Date().toISOString() };
       setPayload(enriched);
       writeStored(PAYLOAD_KEY, enriched);
@@ -246,6 +252,39 @@ export function AppProvider({ children }) {
     }
   }
 
+  async function pollPredictions(attempt = 1) {
+    if (!token) return;
+    try {
+      console.log(`[AppContext] Polling predictions, attempt ${attempt}...`);
+      const res = await fetch("/api/predict", {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || data.error || "Gagal mengambil data prediksi.");
+      
+      if (data.status === "generating") {
+        if (attempt < 20) {
+          setTimeout(() => pollPredictions(attempt + 1), 3000);
+        } else {
+          throw new Error("Waktu tunggu habis. Silakan refresh halaman.");
+        }
+        return;
+      }
+      
+      const enriched = { ...data, saved_at: new Date().toISOString() };
+      setPayload(enriched);
+      writeStored(PAYLOAD_KEY, enriched);
+      setStatus("done");
+    } catch (err) {
+      setError(err.message);
+      setStatus("error");
+    }
+  }
+
   async function runPrediction() {
     if (!token) return;
     setStatus("loading");
@@ -260,6 +299,13 @@ export function AppProvider({ children }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || data.error || "Pipeline gagal.");
+      
+      if (data.status === "generating") {
+        console.log("[AppContext] Forecast is generating. Starting background poll...");
+        pollPredictions(1);
+        return;
+      }
+
       const enriched = { ...data, saved_at: new Date().toISOString() };
       setPayload(enriched);
       writeStored(PAYLOAD_KEY, enriched);
