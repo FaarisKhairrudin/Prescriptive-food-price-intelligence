@@ -9,7 +9,7 @@ import { EmptyState } from "../components/EmptyState";
 import { ForecastCard } from "../components/ForecastCard";
 
 export function OverviewPage() {
-  const { payload, profile } = useAppContext();
+  const { payload, profile, isDemoMode, setIsOnboardingOpen } = useAppContext();
   const [timeRange, setTimeRange] = useState("3m");
 
   if (!payload) return <EmptyState />;
@@ -52,7 +52,7 @@ export function OverviewPage() {
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           <span className="context-badge">
             <span className="context-badge-dot"></span>
-            Profil: {profile.business_type || "Umum"} · {profile.daily_usage_kg || 0} Kg/Hari
+            Profil: {isDemoMode ? "Mode Demo" : (profile.business_type || "Umum")} · {isDemoMode ? "2.0 Kg/Hari" : `${profile.daily_usage_kg || 0} Kg/Hari`}
           </span>
           {formattedSavedAt && (
             <span style={{ fontSize: "12px", color: "var(--muted)" }}>
@@ -61,6 +61,17 @@ export function OverviewPage() {
           )}
         </div>
       </div>
+
+      {isDemoMode && (
+        <div className="demo-mode-banner">
+          <p className="demo-mode-text">
+            ⚠️ <strong>Mode Demo Aktif</strong> — Prediksi dan rekomendasi ini menggunakan parameter default (2.0 Kg/Hari, 10 Kg Simpan). Lengkapi profil bisnis Anda untuk mengaktifkan rencana pengadaan kustom.
+          </p>
+          <button className="demo-mode-btn" onClick={() => setIsOnboardingOpen(true)}>
+            Mulai Atur Profil Usaha
+          </button>
+        </div>
+      )}
 
       <div className="metric-row">
         {/* Card 1: Harga Terakhir */}

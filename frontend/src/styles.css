@@ -2641,3 +2641,237 @@ h1, h2, h3, p {
 .sim-btn-reset:hover {
   background: var(--tag-normal-bg);
 }
+
+/* ===== Google OAuth Button & Divider ===== */
+.auth-divider {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  color: var(--muted);
+  margin: 8px 0;
+  font-size: 13px;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  border-bottom: 1px solid var(--card-border);
+}
+
+.auth-divider:not(:empty)::before {
+  margin-right: .5em;
+}
+
+.auth-divider:not(:empty)::after {
+  margin-left: .5em;
+}
+
+.auth-google-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: white;
+  color: #1a1f36;
+  border: 1px solid #dcdfe6;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 150ms, border-color 150ms;
+}
+
+.auth-google-btn:hover {
+  background: #f5f7fa;
+  border-color: #c0c4cc;
+}
+
+.auth-footer-link {
+  text-align: center;
+  font-size: 13px;
+  color: var(--body);
+  margin-top: 12px;
+}
+
+.auth-footer-link a {
+  color: var(--sidebar-bg);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.auth-footer-link a:hover {
+  text-decoration: underline;
+}
+
+/* ===== Google Simulation Modal Overlay ===== */
+.google-sim-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  backdrop-filter: blur(2px);
+}
+
+.google-sim-modal {
+  background: white;
+  width: 400px;
+  max-width: 90vw;
+  border-radius: 16px;
+  padding: 28px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+}
+
+.google-sim-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.google-sim-desc {
+  font-size: 13px;
+  color: #5a607f;
+  margin: 0 0 20px 0;
+  line-height: 1.4;
+}
+
+.google-sim-accounts {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.google-sim-account-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 150ms, border-color 150ms;
+  width: 100%;
+}
+
+.google-sim-account-row:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.google-sim-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #3b82f6;
+  color: white;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.google-sim-details {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.google-sim-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.google-sim-email {
+  font-size: 12px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.google-sim-custom {
+  border-top: 1px solid #e2e8f0;
+  padding-top: 16px;
+  margin-bottom: 24px;
+}
+
+.google-sim-or {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  display: block;
+}
+
+.google-sim-close-btn {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 8px;
+  text-align: center;
+  margin-top: 4px;
+}
+
+.google-sim-close-btn:hover {
+  color: #334155;
+  text-decoration: underline;
+}
+
+/* ===== Demo Mode Banner ===== */
+.demo-mode-banner {
+  background: linear-gradient(90deg, #fffbeb 0%, #fef3c7 100%);
+  border: 1px solid #fde68a;
+  border-radius: 12px;
+  padding: 14px 20px;
+  margin-bottom: 24px;
+  box-shadow: 0 2px 8px rgba(251, 191, 36, 0.05);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+@media (max-width: 768px) {
+  .demo-mode-banner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+.demo-mode-text {
+  font-size: 13px;
+  color: #92400e;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.demo-mode-btn {
+  background: #d97706;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 150ms;
+  white-space: nowrap;
+}
+
+.demo-mode-btn:hover {
+  background: #b45309;
+}

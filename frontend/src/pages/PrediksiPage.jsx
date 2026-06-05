@@ -10,7 +10,7 @@ import { useAppContext } from "../context/AppContext";
 import { EmptyState } from "../components/EmptyState";
 
 export function PrediksiPage() {
-  const { payload, runPrediction, isLoading, profile, saveProfile } = useAppContext();
+  const { payload, runPrediction, isLoading, profile, saveProfile, isDemoMode, setIsOnboardingOpen } = useAppContext();
   const [timeRange, setTimeRange] = useState("3m");
 
   // Local state for interactive sliders
@@ -76,7 +76,7 @@ export function PrediksiPage() {
         <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
           <span className="context-badge">
             <span className="context-badge-dot"></span>
-            Profil Aktif: {profile.business_type || "Umum"} · {profile.daily_usage_kg || 0} Kg/Hari · {profile.storage_capacity_kg || 0} Kg Simpan
+            Profil Aktif: {isDemoMode ? "Mode Demo" : (profile.business_type || "Umum")} · {isDemoMode ? "2.0" : (profile.daily_usage_kg || 0)} Kg/Hari · {isDemoMode ? "10" : (profile.storage_capacity_kg || 0)} Kg Simpan
           </span>
           {formattedSavedAt && (
             <span style={{ fontSize: "12px", color: "var(--muted)" }}>
@@ -95,6 +95,17 @@ export function PrediksiPage() {
           <span>Perbarui</span>
         </button>
       </div>
+
+      {isDemoMode && (
+        <div className="demo-mode-banner">
+          <p className="demo-mode-text">
+            ⚠️ <strong>Mode Demo Aktif</strong> — Rencana pengadaan menggunakan parameter default (2.0 Kg/Hari, 10 Kg Simpan). Lengkapi profil bisnis Anda untuk melihat rekomendasi pengadaan cabai yang disesuaikan untuk usaha Anda.
+          </p>
+          <button className="demo-mode-btn" onClick={() => setIsOnboardingOpen(true)}>
+            Mulai Atur Profil Usaha
+          </button>
+        </div>
+      )}
 
       {/* 4 KPI Cards */}
       <div className="metric-row four">
@@ -362,15 +373,15 @@ export function PrediksiPage() {
               let purchaseQty = 0;
 
               if (pct > 2.0) {
-                actionText = "Beli";
+                actionText = isDemoMode ? "Demo (Beli)" : "Beli";
                 actionCls = "beli";
                 purchaseQty = Math.min(simulatedStorage, simulatedUsage * 14);
               } else if (pct < -2.0) {
-                actionText = "Tahan";
+                actionText = isDemoMode ? "Demo (Tahan)" : "Tahan";
                 actionCls = "simpan";
                 purchaseQty = Math.max(simulatedUsage * 2, simulatedUsage * 3.5);
               } else {
-                actionText = "Pantau";
+                actionText = isDemoMode ? "Demo (Pantau)" : "Pantau";
                 actionCls = "pantau";
                 purchaseQty = Math.min(simulatedStorage, simulatedUsage * 7);
               }

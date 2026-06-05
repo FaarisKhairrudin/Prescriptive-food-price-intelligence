@@ -3,25 +3,17 @@ import { useNavigate } from "react-router-dom";
 import { useAppContext } from "../context/AppContext";
 
 export function OnboardingTour() {
-  const [isVisible, setIsVisible] = useState(false);
   const [step, setStep] = useState(1);
-  const { profile, setProfile, saveProfile } = useAppContext();
+  const { profile, setProfile, saveProfile, isOnboardingOpen, setIsOnboardingOpen } = useAppContext();
   const navigate = useNavigate();
 
   useEffect(() => {
-    const isCompleted = localStorage.getItem("narapangan:v2:onboarding_completed");
-    if (isCompleted !== "true") {
-      setIsVisible(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (isVisible && step === 6) {
+    if (isOnboardingOpen && step === 6) {
       saveProfile(profile);
     }
-  }, [step, isVisible]);
+  }, [step, isOnboardingOpen]);
 
-  if (!isVisible) return null;
+  if (!isOnboardingOpen) return null;
 
   function updateField(field, value) {
     setProfile((prev) => ({ ...prev, [field]: value }));
@@ -29,7 +21,7 @@ export function OnboardingTour() {
 
   function handleFinish() {
     localStorage.setItem("narapangan:v2:onboarding_completed", "true");
-    setIsVisible(false);
+    setIsOnboardingOpen(false);
     navigate("/dashboard/prediksi");
   }
 

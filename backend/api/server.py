@@ -565,6 +565,125 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                 self._send_json(500, {"error": "Gagal masuk.", "detail": str(e)})
             return
 
+        # 1.1. Register endpoint (Open)
+        if path == "/api/auth/register":
+            try:
+                body = self._read_json()
+                email = str(body.get("email") or "").strip().lower()
+                password = str(body.get("password") or "")
+
+                if not email or not password:
+                    self._send_json(400, {"error": "Email dan password wajib diisi."})
+                    return
+
+                conn = get_connection()
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM users WHERE email = ?", (email,))
+                if cursor.fetchone()[0] > 0:
+                    conn.close()
+                    self._send_json(400, {"error": "Email sudah terdaftar."})
+                    return
+
+                from backend.api.auth import hash_password
+                pw_hash = hash_password(password)
+
+                cursor.execute("""
+                    INSERT INTO users (email, password_hash, is_admin)
+                    VALUES (?, ?, 0)
+                """, (email, pw_hash))
+                user_id = cursor.lastrowid
+                conn.commit()
+                conn.close()
+
+                user_payload = {
+                    "user_id": user_id,
+                    "email": email,
+                    "is_admin": False
+                }
+                token = create_token(user_payload)
+                profile = {
+                    "business_type": "",
+                    "daily_usage_kg": "",
+                    "stock_days": "",
+                    "storage_capacity_kg": "",
+                    "buying_style": "Aman stok",
+                    "can_adjust_price": "Sulit naik harga"
+                }
+
+                self._send_json(200, {
+                    "token": token,
+                    "user": { "email": email, "is_admin": False },
+                    "profile": profile
+                })
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                self._send_json(500, {"error": "Registrasi gagal.", "detail": str(e)})
+            return
+
+        # 1.2. Google Simulated Auth endpoint (Open)
+        if path == "/api/auth/google-simulated":
+            try:
+                body = self._read_json()
+                email = str(body.get("email") or "google-user@gmail.com").strip().lower()
+                
+                conn = get_connection()
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT id, email, is_admin, business_type, daily_usage_kg, stock_days, storage_capacity_kg, buying_style, can_adjust_price FROM users WHERE email = ?",
+                    (email,)
+                )
+                row = cursor.fetchone()
+
+                if not row:
+                    from backend.api.auth import hash_password
+                    dummy_hash = hash_password("sso-google-only")
+                    cursor.execute("""
+                        INSERT INTO users (email, password_hash, is_admin)
+                        VALUES (?, ?, 0)
+                    """, (email, dummy_hash))
+                    user_id = cursor.lastrowid
+                    conn.commit()
+                    profile = {
+                        "business_type": "",
+                        "daily_usage_kg": "",
+                        "stock_days": "",
+                        "storage_capacity_kg": "",
+                        "buying_style": "Aman stok",
+                        "can_adjust_price": "Sulit naik harga"
+                    }
+                    is_admin = False
+                else:
+                    user_id = row["id"]
+                    is_admin = bool(row["is_admin"])
+                    profile = {
+                        "business_type": row["business_type"] or "",
+                        "daily_usage_kg": row["daily_usage_kg"] if row["daily_usage_kg"] is not None else "",
+                        "stock_days": row["stock_days"] if row["stock_days"] is not None else "",
+                        "storage_capacity_kg": row["storage_capacity_kg"] if row["storage_capacity_kg"] is not None else "",
+                        "buying_style": row["buying_style"] or "Aman stok",
+                        "can_adjust_price": row["can_adjust_price"] or "Sulit naik harga"
+                    }
+                conn.close()
+
+                user_payload = {
+                    "user_id": user_id,
+                    "email": email,
+                    "is_admin": is_admin
+                }
+                token = create_token(user_payload)
+
+                self._send_json(200, {
+                    "token": token,
+                    "user": { "email": email, "is_admin": is_admin },
+                    "profile": profile
+                })
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                self._send_json(500, {"error": "Google login gagal.", "detail": str(e)})
+            return
+
         # 2. Authenticated Endpoints
         user_data = self._authenticate()
         if not user_data:

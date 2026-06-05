@@ -12,6 +12,7 @@ const PrediksiPage = lazy(() => import("./pages/PrediksiPage.jsx").then(m => ({ 
 const RiwayatPage = lazy(() => import("./pages/RiwayatPage.jsx").then(m => ({ default: m.RiwayatPage })));
 const KonsultasiPage = lazy(() => import("./pages/KonsultasiPage.jsx").then(m => ({ default: m.KonsultasiPage })));
 const PengaturanPage = lazy(() => import("./pages/PengaturanPage.jsx").then(m => ({ default: m.PengaturanPage })));
+const RegisterPage = lazy(() => import("./pages/RegisterPage.jsx").then(m => ({ default: m.RegisterPage })));
 
 const LoadingFallback = () => (
   <div className="page-loader">
@@ -33,6 +34,14 @@ const router = createBrowserRouter([
     element: (
       <Suspense fallback={<LoadingFallback />}>
         <LoginPage />
+      </Suspense>
+    ),
+  },
+  {
+    path: "/register",
+    element: (
+      <Suspense fallback={<LoadingFallback />}>
+        <RegisterPage />
       </Suspense>
     ),
   },

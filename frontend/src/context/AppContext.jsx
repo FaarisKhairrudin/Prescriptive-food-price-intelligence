@@ -11,6 +11,9 @@ export function AppProvider({ children }) {
   const [payload, setPayload] = useState(null);
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState("");
+  
+  // Onboarding modal visibility managed at AppContext level
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
 
   // Transition: Clear old client-side auth key if present
   useEffect(() => {
@@ -31,6 +34,7 @@ export function AppProvider({ children }) {
       setPayload(null);
       setProfile(DEFAULT_PROFILE);
       setUser(null);
+      setIsOnboardingOpen(false);
     }
   }, [token]);
 
@@ -51,9 +55,17 @@ export function AppProvider({ children }) {
       let currentProfile = profile;
       if (profileRes.ok) {
         const profileData = await profileRes.json();
-        setProfile(profileData.profile);
-        writeStored("narapangan:v2:profile", profileData.profile);
-        currentProfile = profileData.profile;
+        const p = profileData.profile;
+        setProfile(p);
+        writeStored("narapangan:v2:profile", p);
+        currentProfile = p;
+
+        // Auto-open onboarding if profile is incomplete and user hasn't finished onboarding
+        const incomplete = !p.business_type || !p.daily_usage_kg || !p.storage_capacity_kg;
+        const tourCompleted = localStorage.getItem("narapangan:v2:onboarding_completed") === "true";
+        if (incomplete && !tourCompleted) {
+          setIsOnboardingOpen(true);
+        }
       }
 
       // 2. Fetch predictions
@@ -115,6 +127,81 @@ export function AppProvider({ children }) {
     }
   }
 
+  async function register(email, password) {
+    setStatus("loading");
+    setError("");
+    try {
+      const res = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Registrasi gagal.");
+
+      localStorage.setItem("narapangan:v2:token", data.token);
+      writeStored("narapangan:v2:user", data.user);
+      writeStored("narapangan:v2:profile", data.profile);
+      
+      // Reset onboarding tour status for a clean new registration experience
+      localStorage.removeItem("narapangan:v2:onboarding_completed");
+      
+      localStorage.removeItem(PAYLOAD_KEY);
+      setPayload(null);
+      
+      setToken(data.token);
+      setUser(data.user);
+      setProfile(data.profile);
+      setIsOnboardingOpen(true);
+      setStatus("done");
+      return true;
+    } catch (err) {
+      setError(err.message);
+      setStatus("error");
+      return false;
+    }
+  }
+
+  async function loginWithGoogle(email) {
+    setStatus("loading");
+    setError("");
+    try {
+      const res = await fetch("/api/auth/google-simulated", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Google auth gagal.");
+
+      localStorage.setItem("narapangan:v2:token", data.token);
+      writeStored("narapangan:v2:user", data.user);
+      writeStored("narapangan:v2:profile", data.profile);
+      
+      // Clear previous cached payload before loading new user
+      localStorage.removeItem(PAYLOAD_KEY);
+      setPayload(null);
+
+      // Check if registration was triggered (empty profile)
+      const p = data.profile;
+      const incomplete = !p.business_type || !p.daily_usage_kg || !p.storage_capacity_kg;
+      if (incomplete) {
+        localStorage.removeItem("narapangan:v2:onboarding_completed");
+        setIsOnboardingOpen(true);
+      }
+      
+      setToken(data.token);
+      setUser(data.user);
+      setProfile(data.profile);
+      setStatus("done");
+      return true;
+    } catch (err) {
+      setError(err.message);
+      setStatus("error");
+      return false;
+    }
+  }
+
   function logout() {
     localStorage.removeItem("narapangan:v2:token");
     localStorage.removeItem("narapangan:v2:user");
@@ -125,6 +212,7 @@ export function AppProvider({ children }) {
     setUser(null);
     setProfile(DEFAULT_PROFILE);
     setPayload(null);
+    setIsOnboardingOpen(false);
     setStatus("idle");
     setError("");
   }
@@ -184,6 +272,9 @@ export function AppProvider({ children }) {
 
   const isLoading = status === "loading";
   const isAuthenticated = !!token;
+  
+  // Calculate Demo Mode dynamically
+  const isDemoMode = !profile.business_type || !profile.daily_usage_kg || !profile.storage_capacity_kg;
 
   return (
     <AppContext.Provider value={{
@@ -200,7 +291,12 @@ export function AppProvider({ children }) {
       login,
       logout,
       saveProfile,
-      runPrediction
+      runPrediction,
+      register,
+      loginWithGoogle,
+      isDemoMode,
+      isOnboardingOpen,
+      setIsOnboardingOpen
     }}>
       {children}
     </AppContext.Provider>

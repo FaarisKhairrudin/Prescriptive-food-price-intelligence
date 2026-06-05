@@ -2,11 +2,12 @@ import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAppContext } from "../context/AppContext";
 
-export function LoginPage() {
+export function RegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const navigate = useNavigate();
-  const { login, loginWithGoogle, isLoading, error: contextError, isAuthenticated } = useAppContext();
+  const { register, loginWithGoogle, isLoading, error: contextError, isAuthenticated } = useAppContext();
   const [localError, setLocalError] = useState("");
   const [showGoogleSim, setShowGoogleSim] = useState(false);
   const [googleEmail, setGoogleEmail] = useState("");
@@ -20,11 +21,16 @@ export function LoginPage() {
   async function handleSubmit(e) {
     e.preventDefault();
     setLocalError("");
+
+    if (password !== confirmPassword) {
+      setLocalError("Konfirmasi password tidak cocok.");
+      return;
+    }
     
     if (email && password) {
-      const success = await login(email, password);
+      const success = await register(email, password);
       if (success) {
-        navigate("/dashboard");
+        navigate("/dashboard/prediksi");
       }
     }
   }
@@ -42,8 +48,8 @@ export function LoginPage() {
       <div className="auth-card">
         <div className="auth-header">
           <img src="/logo.png" alt="Narapangan" />
-          <h2 className="auth-title">Selamat Datang</h2>
-          <p className="auth-subtitle">Masuk ke akun UMKM Anda</p>
+          <h2 className="auth-title">Daftar Akun Baru</h2>
+          <p className="auth-subtitle">Kelola pengadaan bahan F&B Anda secara cerdas</p>
         </div>
         <form className="auth-form" onSubmit={handleSubmit}>
           {(localError || contextError) && (
@@ -59,8 +65,12 @@ export function LoginPage() {
             <label>Password</label>
             <input type="password" value={password} onChange={e => setPassword(e.target.value)} required placeholder="••••••••" />
           </div>
+          <div className="auth-field">
+            <label>Konfirmasi Password</label>
+            <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required placeholder="••••••••" />
+          </div>
           <button type="submit" className="auth-submit" disabled={isLoading}>
-            {isLoading ? "Memuat..." : "Masuk"}
+            {isLoading ? "Memuat..." : "Daftar"}
           </button>
           
           <div className="auth-divider">
@@ -79,11 +89,11 @@ export function LoginPage() {
               <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05"/>
               <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335"/>
             </svg>
-            <span>Masuk dengan Google</span>
+            <span>Daftar dengan Google</span>
           </button>
 
           <div className="auth-footer-link">
-            Belum punya akun? <Link to="/register">Daftar di sini</Link>
+            Sudah punya akun? <Link to="/">Masuk di sini</Link>
           </div>
         </form>
       </div>
@@ -101,7 +111,7 @@ export function LoginPage() {
               </svg>
               <h3 style={{ margin: 0, fontWeight: 700, color: "#1a1f36" }}>Pilih Akun Google</h3>
             </div>
-            <p className="google-sim-desc">Pilih akun Google Demo untuk masuk ke Narapangan:</p>
+            <p className="google-sim-desc">Pilih akun Google Demo untuk daftar di Narapangan:</p>
             <div className="google-sim-accounts">
               <button onClick={() => handleGoogleLogin("warung.seblak@gmail.com")} className="google-sim-account-row">
                 <div className="google-sim-avatar">S</div>
@@ -144,7 +154,7 @@ export function LoginPage() {
                   className="sim-btn-save"
                   style={{ padding: "8px 16px", borderRadius: "6px" }}
                 >
-                  Masuk
+                  Daftar
                 </button>
               </div>
             </div>
