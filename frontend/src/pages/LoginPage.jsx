@@ -8,19 +8,18 @@ export function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const navigate = useNavigate();
-  const { setPayload, runPrediction } = useAppContext();
+  const { login, isLoading, error: contextError } = useAppContext();
+  const [localError, setLocalError] = useState("");
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
+    setLocalError("");
+    
     if (email && password) {
-      localStorage.setItem("narapangan:v2:auth", "true");
-      
-      const cached = readStored(PAYLOAD_KEY);
-      if (cached) {
-        setPayload(cached);
+      const success = await login(email, password);
+      if (success) {
+        navigate("/dashboard");
       }
-      
-      navigate("/dashboard");
     }
   }
 
@@ -33,6 +32,11 @@ export function LoginPage() {
           <p className="auth-subtitle">Masuk ke akun UMKM Anda</p>
         </div>
         <form className="auth-form" onSubmit={handleSubmit}>
+          {(localError || contextError) && (
+            <div className="auth-error-banner" style={{ color: "var(--live-red)", fontSize: 13, marginBottom: 14, fontWeight: "600" }}>
+              {localError || contextError}
+            </div>
+          )}
           <div className="auth-field">
             <label>Email</label>
             <input type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="email@contoh.com" />
@@ -41,7 +45,9 @@ export function LoginPage() {
             <label>Password</label>
             <input type="password" value={password} onChange={e => setPassword(e.target.value)} required placeholder="••••••••" />
           </div>
-          <button type="submit" className="auth-submit">Masuk</button>
+          <button type="submit" className="auth-submit" disabled={isLoading}>
+            {isLoading ? "Memuat..." : "Masuk"}
+          </button>
         </form>
       </div>
     </div>

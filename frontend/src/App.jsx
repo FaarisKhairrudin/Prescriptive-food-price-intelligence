@@ -10,15 +10,14 @@ import { AlertTriangle } from "lucide-react";
 import "./styles.css";
 
 function App() {
-  const { payload, isLoading, error } = useAppContext();
+  const { payload, isLoading, error, isAuthenticated } = useAppContext();
   const navigate = useNavigate();
 
   useEffect(() => {
-    const isAuth = localStorage.getItem("narapangan:v2:auth") === "true";
-    if (!isAuth) {
+    if (!isAuthenticated) {
       navigate("/");
     }
-  }, [navigate]);
+  }, [isAuthenticated, navigate]);
 
   return (
     <div className="app-shell">

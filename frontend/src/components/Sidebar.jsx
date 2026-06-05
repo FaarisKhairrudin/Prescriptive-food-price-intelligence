@@ -4,7 +4,7 @@ import { useAppContext } from "../context/AppContext";
 
 export function Sidebar() {
   const { pathname } = useLocation();
-  const { payload, profile } = useAppContext();
+  const { payload, profile, logout, user } = useAppContext();
 
   const getAlert = () => {
     if (!payload?.summary) return null;
@@ -61,11 +61,11 @@ export function Sidebar() {
         </div>
       )}
 
-      <button className="sidebar-user">
+      <button className="sidebar-user" onClick={logout} title="Klik untuk keluar">
         <div className="sidebar-avatar">{profile.business_type ? profile.business_type[0].toUpperCase() : "U"}</div>
         <div className="sidebar-user-info">
-          <div className="sidebar-user-name">[User]</div>
-          <div className="sidebar-user-role">{profile.business_type || "UMKM"}</div>
+          <div className="sidebar-user-name">{user?.email || "Pengguna"}</div>
+          <div className="sidebar-user-role">{profile.business_type || "UMKM"} · Keluar</div>
         </div>
       </button>
     </aside>

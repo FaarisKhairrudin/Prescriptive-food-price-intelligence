@@ -2308,3 +2308,19 @@ h1, h2, h3, p {
 .auth-submit:hover {
   background: #2a4a2a;
 }
+
+.save-btn {
+  font-size: 14px;
+  font-weight: 600;
+  padding: 10px 24px;
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.save-btn:disabled {
+  background: var(--card-border);
+  color: var(--muted);
+  cursor: not-allowed;
+  transform: none;
+}

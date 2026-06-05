@@ -13,6 +13,8 @@ from backend.api.gemini_client import (
     is_gemini_configured,
 )
 from backend.pipeline.main_pipeline import build_web_payload, run_narapangan_pipeline
+from backend.database import get_connection
+from backend.api.auth import verify_password, create_token, verify_token
 
 
 HOST = "127.0.0.1"
@@ -439,7 +441,7 @@ class NarapanganHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(encoded)))
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.end_headers()
         self.wfile.write(encoded)
@@ -452,6 +454,14 @@ class NarapanganHandler(BaseHTTPRequestHandler):
         raw_body = self.rfile.read(content_length).decode("utf-8")
         return json.loads(raw_body)
 
+    def _authenticate(self) -> dict | None:
+        """Extracts and validates the JWT Bearer token from the Authorization header."""
+        auth_header = self.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            return None
+        token = auth_header.split(" ")[1]
+        return verify_token(token)
+
     def do_OPTIONS(self):
         self._send_json(200, {"ok": True})
 
@@ -461,25 +471,182 @@ class NarapanganHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True, "service": "narapangan-api"})
             return
 
+        if path == "/api/users/profile":
+            user_data = self._authenticate()
+            if not user_data:
+                self._send_json(401, {"error": "Sesi kedaluwarsa atau tidak sah. Silakan login kembali."})
+                return
+
+            try:
+                conn = get_connection()
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT email, is_admin, business_type, daily_usage_kg, stock_days, storage_capacity_kg, buying_style, can_adjust_price FROM users WHERE id = ?",
+                    (user_data["user_id"],)
+                )
+                row = cursor.fetchone()
+                conn.close()
+
+                if not row:
+                    self._send_json(404, {"error": "Pengguna tidak ditemukan."})
+                    return
+
+                profile = {
+                    "business_type": row["business_type"] or "",
+                    "daily_usage_kg": row["daily_usage_kg"] if row["daily_usage_kg"] is not None else "",
+                    "stock_days": row["stock_days"] if row["stock_days"] is not None else "",
+                    "storage_capacity_kg": row["storage_capacity_kg"] if row["storage_capacity_kg"] is not None else "",
+                    "buying_style": row["buying_style"] or "Aman stok",
+                    "can_adjust_price": row["can_adjust_price"] or "Sulit naik harga"
+                }
+                self._send_json(200, {"profile": profile})
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                self._send_json(500, {"error": "Gagal mengambil profil.", "detail": str(e)})
+            return
+
         self._send_json(404, {"error": "Endpoint tidak ditemukan."})
 
     def do_POST(self):
         path = urlparse(self.path).path
+
+        # 1. Login endpoint (Open)
+        if path == "/api/auth/login":
+            try:
+                body = self._read_json()
+                email = str(body.get("email") or "").strip().lower()
+                password = str(body.get("password") or "")
+
+                if not email or not password:
+                    self._send_json(400, {"error": "Email dan password wajib diisi."})
+                    return
+
+                conn = get_connection()
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT id, email, password_hash, is_admin, business_type, daily_usage_kg, stock_days, storage_capacity_kg, buying_style, can_adjust_price FROM users WHERE email = ?",
+                    (email,)
+                )
+                row = cursor.fetchone()
+                conn.close()
+
+                if not row or not verify_password(password, row["password_hash"]):
+                    self._send_json(401, {"error": "Email atau password salah."})
+                    return
+
+                user_payload = {
+                    "user_id": row["id"],
+                    "email": row["email"],
+                    "is_admin": bool(row["is_admin"])
+                }
+                token = create_token(user_payload)
+
+                profile = {
+                    "business_type": row["business_type"] or "",
+                    "daily_usage_kg": row["daily_usage_kg"] if row["daily_usage_kg"] is not None else "",
+                    "stock_days": row["stock_days"] if row["stock_days"] is not None else "",
+                    "storage_capacity_kg": row["storage_capacity_kg"] if row["storage_capacity_kg"] is not None else "",
+                    "buying_style": row["buying_style"] or "Aman stok",
+                    "can_adjust_price": row["can_adjust_price"] or "Sulit naik harga"
+                }
+
+                self._send_json(200, {
+                    "token": token,
+                    "user": {
+                        "email": row["email"],
+                        "is_admin": bool(row["is_admin"])
+                    },
+                    "profile": profile
+                })
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                self._send_json(500, {"error": "Gagal masuk.", "detail": str(e)})
+            return
+
+        # 2. Authenticated Endpoints
+        user_data = self._authenticate()
+        if not user_data:
+            self._send_json(401, {"error": "Sesi kedaluwarsa atau tidak sah. Silakan login kembali."})
+            return
+
+        if path == "/api/users/profile":
+            try:
+                body = self._read_json()
+                profile = _clean_business_profile(body.get("profile"))
+
+                daily_usage = float(profile.get("daily_usage_kg")) if profile.get("daily_usage_kg") else None
+                stock_days = int(profile.get("stock_days")) if profile.get("stock_days") else None
+                storage_capacity = float(profile.get("storage_capacity_kg")) if profile.get("storage_capacity_kg") else None
+
+                conn = get_connection()
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE users
+                    SET business_type = ?,
+                        daily_usage_kg = ?,
+                        stock_days = ?,
+                        storage_capacity_kg = ?,
+                        buying_style = ?,
+                        can_adjust_price = ?
+                    WHERE id = ?
+                """, (
+                    profile.get("business_type") or None,
+                    daily_usage,
+                    stock_days,
+                    storage_capacity,
+                    profile.get("buying_style") or "Aman stok",
+                    profile.get("can_adjust_price") or "Sulit naik harga",
+                    user_data["user_id"]
+                ))
+                conn.commit()
+                conn.close()
+
+                self._send_json(200, {"ok": True, "profile": profile})
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                self._send_json(500, {"error": "Gagal menyimpan profil.", "detail": str(e)})
+            return
+
+        if path == "/api/predict":
+            self._handle_predict(user_data)
+            return
+
         if path == "/api/chat":
-            self._handle_chat()
+            self._handle_chat(user_data)
             return
 
-        if path != "/api/predict":
-            self._send_json(404, {"error": "Endpoint tidak ditemukan."})
-            return
+        self._send_json(404, {"error": "Endpoint tidak ditemukan."})
 
+    def _handle_predict(self, user_data):
         try:
-            print("[predict] Request diterima")
+            print(f"[predict] Request diterima untuk user_id={user_data['user_id']}")
             request_body = self._read_json()
             end_date = request_body.get("end_date") or None
-            business_profile = _clean_business_profile(
-                request_body.get("business_profile")
+
+            # Query profile from database
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT business_type, daily_usage_kg, stock_days, storage_capacity_kg, buying_style, can_adjust_price FROM users WHERE id = ?",
+                (user_data["user_id"],)
             )
+            row = cursor.fetchone()
+            conn.close()
+
+            if row:
+                business_profile = {
+                    "business_type": row["business_type"] or "",
+                    "daily_usage_kg": str(row["daily_usage_kg"]) if row["daily_usage_kg"] is not None else "",
+                    "stock_days": str(row["stock_days"]) if row["stock_days"] is not None else "",
+                    "storage_capacity_kg": str(row["storage_capacity_kg"]) if row["storage_capacity_kg"] is not None else "",
+                    "buying_style": row["buying_style"] or "Aman stok",
+                    "can_adjust_price": row["can_adjust_price"] or "Sulit naik harga"
+                }
+            else:
+                business_profile = {}
 
             pipeline_result = run_narapangan_pipeline(
                 end_date=end_date,
@@ -509,15 +676,12 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                 },
             )
 
-    def _handle_chat(self):
+    def _handle_chat(self, user_data):
         try:
-            print("[chat] Request diterima")
+            print(f"[chat] Request diterima untuk user_id={user_data['user_id']}")
             request_body = self._read_json()
             payload = request_body.get("payload")
             question = str(request_body.get("question") or "").strip()
-            business_profile = _clean_business_profile(
-                request_body.get("business_profile")
-            )
             chat_history = _clean_chat_history(request_body.get("chat_history"))
 
             if not isinstance(payload, dict):
@@ -526,6 +690,28 @@ class NarapanganHandler(BaseHTTPRequestHandler):
             if not question:
                 self._send_json(400, {"error": "Pertanyaan tidak boleh kosong."})
                 return
+
+            # Query profile from database
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT business_type, daily_usage_kg, stock_days, storage_capacity_kg, buying_style, can_adjust_price FROM users WHERE id = ?",
+                (user_data["user_id"],)
+            )
+            row = cursor.fetchone()
+            conn.close()
+
+            if row:
+                business_profile = {
+                    "business_type": row["business_type"] or "",
+                    "daily_usage_kg": str(row["daily_usage_kg"]) if row["daily_usage_kg"] is not None else "",
+                    "stock_days": str(row["stock_days"]) if row["stock_days"] is not None else "",
+                    "storage_capacity_kg": str(row["storage_capacity_kg"]) if row["storage_capacity_kg"] is not None else "",
+                    "buying_style": row["buying_style"] or "Aman stok",
+                    "can_adjust_price": row["can_adjust_price"] or "Sulit naik harga"
+                }
+            else:
+                business_profile = {}
 
             reply = build_chat_reply(
                 payload=payload,

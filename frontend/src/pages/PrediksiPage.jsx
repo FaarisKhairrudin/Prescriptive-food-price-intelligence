@@ -39,33 +39,6 @@ export function PrediksiPage() {
 
   return (
     <div className="page-container">
-      {/* Prediction Input Bar */}
-      <div className="prediction-input-bar">
-        <div className="input-field">
-          <label>Jenis Usaha F&B</label>
-          <input
-            placeholder="contoh: Seblak, Warung Nasi"
-            value={profile.business_type || ""}
-            onChange={(e) => setProfile(p => ({ ...p, business_type: e.target.value }))}
-          />
-        </div>
-        <div className="input-field">
-          <label>Kebutuhan Stok Mingguan (Kg)</label>
-          <input
-            type="number"
-            min="0"
-            step="0.5"
-            placeholder="contoh: 5"
-            value={profile.daily_usage_kg || ""}
-            onChange={(e) => setProfile(p => ({ ...p, daily_usage_kg: e.target.value }))}
-          />
-        </div>
-        <button className="prediction-run-btn" onClick={runPrediction} disabled={isLoading}>
-          {isLoading ? <RefreshCw size={16} className="spin" /> : null}
-          <span>Mulai Analisis</span>
-          <ChevronRight size={16} />
-        </button>
-      </div>
 
       {/* 4 KPI Cards */}
       <div className="metric-row four">

@@ -109,17 +109,19 @@ def init_db():
     # Create default admin user if none exists
     cursor.execute("SELECT COUNT(*) FROM users WHERE email = 'admin@narapangan.com'")
     if cursor.fetchone()[0] == 0:
-        # Default mock admin user: password hash for 'admin123'
-        # In P0-3, we will use bcrypt properly. For now we use a simple placeholder hash.
+        from backend.api.auth import hash_password
+        admin_hash = hash_password("admin123")
+        umkm_hash = hash_password("umkm123")
+        
         cursor.execute("""
             INSERT INTO users (email, password_hash, is_admin, business_type)
-            VALUES ('admin@narapangan.com', 'admin_hash_placeholder', 1, 'Admin Narapangan')
-        """)
+            VALUES ('admin@narapangan.com', ?, 1, 'Admin Narapangan')
+        """, (admin_hash,))
         # Default regular user
         cursor.execute("""
             INSERT INTO users (email, password_hash, is_admin, business_type, daily_usage_kg, stock_days, storage_capacity_kg, buying_style, can_adjust_price)
-            VALUES ('umkm@narapangan.com', 'umkm_hash_placeholder', 0, 'Warung Nasi', 2.0, 3, 10.0, 'Aman stok', 'Sulit naik harga')
-        """)
+            VALUES ('umkm@narapangan.com', ?, 0, 'Warung Nasi', 2.0, 3, 10.0, 'Aman stok', 'Sulit naik harga')
+        """, (umkm_hash,))
 
     conn.commit()
     conn.close()
