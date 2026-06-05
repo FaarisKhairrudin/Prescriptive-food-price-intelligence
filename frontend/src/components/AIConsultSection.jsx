@@ -2,8 +2,10 @@ import { useState, useRef, useEffect } from "react";
 import { Sparkles, Send, Loader2 } from "lucide-react";
 import { MarkdownText } from "./ForecastCard";
 import { QUICK_QUESTIONS } from "../utils/constants";
+import { useAppContext } from "../context/AppContext";
 
 export function AIConsultSection({ payload, businessProfile }) {
+  const { token } = useAppContext();
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState([]);
   const [status, setStatus] = useState("idle");
@@ -26,7 +28,10 @@ export function AIConsultSection({ payload, businessProfile }) {
       const chatHistory = messages.slice(-8).map((m) => ({ role: m.role, text: m.text }));
       const res = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
         body: JSON.stringify({
           payload,
           question: q,

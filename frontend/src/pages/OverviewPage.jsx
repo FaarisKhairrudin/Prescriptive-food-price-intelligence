@@ -1,5 +1,6 @@
-import { Calendar, ArrowUpRight, ArrowDownRight } from "lucide-react";
+import { Calendar, ArrowUpRight, ArrowDownRight, Sparkles } from "lucide-react";
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import { formatRp, formatSigned, formatDate, formatCurrency, buildChartData } from "../utils/helpers";
 import { CHART_COLORS } from "../utils/constants";
@@ -37,11 +38,28 @@ export function OverviewPage() {
       ? "TAHAN"
       : "NORMAL";
 
+  const formattedSavedAt = payload.saved_at
+    ? new Date(payload.saved_at).toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' })
+    : "";
+
   return (
     <div className="page-container">
-      <div className="overview-greeting">
-        <h2>Selamat datang kembali, {profile.business_type || 'Pengguna'} 👋</h2>
-        <p>Data per {formatDate(new Date().toISOString())}</p>
+      <div className="overview-greeting" style={{ marginBottom: "20px", display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "10px" }}>
+        <div>
+          <h2 style={{ margin: "0 0 4px 0" }}>Selamat datang kembali, {profile.business_type || 'Pengguna'} 👋</h2>
+          <p style={{ margin: 0, color: "var(--muted)" }}>Data per {formatDate(new Date().toISOString())}</p>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <span className="context-badge">
+            <span className="context-badge-dot"></span>
+            Profil: {profile.business_type || "Umum"} · {profile.daily_usage_kg || 0} Kg/Hari
+          </span>
+          {formattedSavedAt && (
+            <span style={{ fontSize: "12px", color: "var(--muted)" }}>
+              Pukul {formattedSavedAt}
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="metric-row">
@@ -57,7 +75,7 @@ export function OverviewPage() {
           </div>
           <div className="metric-detail">
             <Calendar size={14} className="metric-detail-icon" />
-            <span className="metric-detail-text">{formatDate(summary.last_actual_date)} · Pasar Caringin</span>
+            <span className="metric-detail-text">{formatDate(summary.last_actual_date)} · Caringin</span>
           </div>
         </div>
 
@@ -93,6 +111,45 @@ export function OverviewPage() {
           </div>
         </div>
       </div>
+
+      {/* AI Insight Card */}
+      {payload.explanation && (
+        <div className="ai-insight-card">
+          <div className="ai-insight-header">
+            <div className="ai-badge">
+              <Sparkles size={14} className="ai-sparkle-icon" />
+              <span>ANALISIS AI NARAPANGAN</span>
+            </div>
+            {payload.explanation.source === "gemini" && (
+              <span className="source-badge gemini">Gemini AI</span>
+            )}
+            {payload.explanation.source === "rule_based" && (
+              <span className="source-badge fallback">Sistem</span>
+            )}
+          </div>
+          
+          <h4 className="ai-insight-headline">{payload.explanation.headline}</h4>
+          <p className="ai-insight-body">{payload.explanation.body}</p>
+          
+          {payload.explanation.drivers && payload.explanation.drivers.length > 0 && (
+            <div className="ai-insight-drivers">
+              <span className="drivers-label">FAKTOR PENGGERAK HARGA:</span>
+              <div className="drivers-list">
+                {payload.explanation.drivers.map((drv, idx) => (
+                  <span key={idx} className="driver-pill">{drv}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          <div className="ai-insight-footer">
+            <span className="ai-insight-offer">{payload.explanation.offer}</span>
+            <Link to="/dashboard/konsultasi" className="ai-insight-btn">
+              Konsultasi Strategi &rarr;
+            </Link>
+          </div>
+        </div>
+      )}
 
       <div className="content-grid">
         <div className="chart-panel">

@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAppContext } from "../context/AppContext";
 
 export function OnboardingTour() {
   const [isVisible, setIsVisible] = useState(false);
   const [step, setStep] = useState(1);
-  const { profile, setProfile } = useAppContext();
+  const { profile, setProfile, saveProfile } = useAppContext();
+  const navigate = useNavigate();
 
   useEffect(() => {
     const isCompleted = localStorage.getItem("narapangan:v2:onboarding_completed");
@@ -12,6 +14,12 @@ export function OnboardingTour() {
       setIsVisible(true);
     }
   }, []);
+
+  useEffect(() => {
+    if (isVisible && step === 6) {
+      saveProfile(profile);
+    }
+  }, [step, isVisible]);
 
   if (!isVisible) return null;
 
@@ -22,9 +30,10 @@ export function OnboardingTour() {
   function handleFinish() {
     localStorage.setItem("narapangan:v2:onboarding_completed", "true");
     setIsVisible(false);
+    navigate("/dashboard/prediksi");
   }
 
-  const stepsCount = 5;
+  const stepsCount = 6;
 
   return (
     <div className="onboarding-overlay">
@@ -36,6 +45,7 @@ export function OnboardingTour() {
             {step === 3 && "Kebutuhan Cabai"}
             {step === 4 && "Manajemen Stok"}
             {step === 5 && "Preferensi Belanja"}
+            {step === 6 && "Setup Selesai!"}
           </h2>
           <span className="onboarding-step">
             Langkah {step} dari {stepsCount}
@@ -130,6 +140,30 @@ export function OnboardingTour() {
               </div>
             </div>
           )}
+
+          {step === 6 && (
+            <div style={{ lineHeight: 1.6 }}>
+              <div className="onboarding-summary-card" style={{
+                background: "rgba(197, 230, 54, 0.08)",
+                border: "1px solid rgba(197, 230, 54, 0.2)",
+                padding: "16px",
+                borderRadius: "12px",
+                marginBottom: "16px"
+              }}>
+                <h4 style={{ margin: "0 0 10px 0", color: "var(--ink)", fontWeight: 700 }}>Ringkasan Profil Bisnis:</h4>
+                <ul style={{ margin: 0, paddingLeft: "20px", color: "var(--body)" }}>
+                  <li><strong>Jenis Usaha:</strong> {profile.business_type || "-"}</li>
+                  <li><strong>Pemakaian Harian:</strong> {profile.daily_usage_kg || "0"} Kg/Hari</li>
+                  <li><strong>Kapasitas Penyimpanan:</strong> {profile.storage_capacity_kg || "0"} Kg</li>
+                  <li><strong>Gaya Belanja:</strong> {profile.buying_style || "Aman stok"}</li>
+                </ul>
+              </div>
+              <p style={{ margin: 0, color: "var(--body)", fontSize: "13px" }}>
+                <strong>Bagaimana rekomendasi dihitung?</strong><br />
+                Sistem membandingkan proyeksi tren harga pasar Caringin dengan pemakaian harian ({profile.daily_usage_kg || 0} Kg) dan kapasitas penyimpanan ({profile.storage_capacity_kg || 0} Kg) untuk menghitung kuantitas pembelian optimal di setiap minggu secara otomatis.
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="onboarding-footer">
@@ -149,8 +183,10 @@ export function OnboardingTour() {
                 Lanjut
               </button>
             ) : (
-              <button className="onboarding-btn finish" onClick={handleFinish}>
-                Selesai
+              <button className="onboarding-btn finish" onClick={handleFinish} style={{
+                animation: "pulse 2s infinite"
+              }}>
+                Mulai Rencana Pengadaan
               </button>
             )}
           </div>

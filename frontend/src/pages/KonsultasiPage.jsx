@@ -6,7 +6,7 @@ import { formatDate } from "../utils/helpers";
 import { useAppContext } from "../context/AppContext";
 
 export function KonsultasiPage() {
-  const { payload, profile } = useAppContext();
+  const { payload, profile, token } = useAppContext();
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState([]);
   const [status, setStatus] = useState("idle");
@@ -75,7 +75,10 @@ export function KonsultasiPage() {
       const chatHistory = messages.slice(-8).map((m) => ({ role: m.role, text: m.text }));
       const res = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
         body: JSON.stringify({
           payload,
           question: q,

@@ -196,6 +196,7 @@ export function AppProvider({ children }) {
       setProfile,
       isAuthenticated,
       user,
+      token,
       login,
       logout,
       saveProfile,

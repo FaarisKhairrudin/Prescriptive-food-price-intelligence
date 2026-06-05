@@ -1,5 +1,6 @@
-import { ArrowUpRight, ArrowDownRight, RefreshCw, Calendar, ChevronRight } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, RefreshCw, Calendar, ChevronRight, Sparkles } from "lucide-react";
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import { formatRp, formatSigned, formatCurrency, formatDate, buildChartData } from "../utils/helpers";
 import { CHART_COLORS } from "../utils/constants";
@@ -9,9 +10,15 @@ import { useAppContext } from "../context/AppContext";
 import { EmptyState } from "../components/EmptyState";
 
 export function PrediksiPage() {
-  const { payload, runPrediction, isLoading, profile, setProfile } = useAppContext();
+  const { payload, runPrediction, isLoading, profile, saveProfile } = useAppContext();
   const [timeRange, setTimeRange] = useState("3m");
-  
+
+  // Local state for interactive sliders
+  const [simulatedUsage, setSimulatedUsage] = useState(() => parseFloat(profile.daily_usage_kg) || 2.0);
+  const [simulatedStorage, setSimulatedStorage] = useState(() => parseFloat(profile.storage_capacity_kg) || 10.0);
+  const [isSimulating, setIsSimulating] = useState(true);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
   if (!payload) return <EmptyState />;
 
   const { summary, history, forecast } = payload;
@@ -37,8 +44,57 @@ export function PrediksiPage() {
     [forecast]
   );
 
+  async function handleApplyToProfile() {
+    const ok = await saveProfile({
+      ...profile,
+      daily_usage_kg: simulatedUsage,
+      storage_capacity_kg: simulatedStorage
+    });
+    if (ok) {
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    }
+  }
+
+  function handleReset() {
+    setSimulatedUsage(parseFloat(profile.daily_usage_kg) || 2.0);
+    setSimulatedStorage(parseFloat(profile.storage_capacity_kg) || 10.0);
+  }
+
+  const hasChanges = simulatedUsage !== (parseFloat(profile.daily_usage_kg) || 2.0) ||
+                     simulatedStorage !== (parseFloat(profile.storage_capacity_kg) || 10.0);
+
+  const formattedSavedAt = payload.saved_at
+    ? new Date(payload.saved_at).toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' })
+    : "";
+
   return (
     <div className="page-container">
+      
+      {/* Active Profile Status Bar */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+          <span className="context-badge">
+            <span className="context-badge-dot"></span>
+            Profil Aktif: {profile.business_type || "Umum"} · {profile.daily_usage_kg || 0} Kg/Hari · {profile.storage_capacity_kg || 0} Kg Simpan
+          </span>
+          {formattedSavedAt && (
+            <span style={{ fontSize: "12px", color: "var(--muted)" }}>
+              Data per pukul {formattedSavedAt}
+            </span>
+          )}
+        </div>
+        <button
+          onClick={runPrediction}
+          disabled={isLoading}
+          className="chart-filter-btn"
+          style={{ display: "flex", alignItems: "center", gap: "6px", height: "32px" }}
+          title="Klik untuk memuat ulang prediksi dari server"
+        >
+          <RefreshCw size={14} className={isLoading ? "spin" : ""} />
+          <span>Perbarui</span>
+        </button>
+      </div>
 
       {/* 4 KPI Cards */}
       <div className="metric-row four">
@@ -54,7 +110,7 @@ export function PrediksiPage() {
           </div>
           <div className="metric-detail">
             <Calendar size={14} className="metric-detail-icon" />
-            <span className="metric-detail-text">{formatDate(summary.last_actual_date)} · Pasar Caringin</span>
+            <span className="metric-detail-text">{formatDate(summary.last_actual_date)} · Caringin</span>
           </div>
         </div>
 
@@ -107,6 +163,114 @@ export function PrediksiPage() {
         </div>
       </div>
 
+      {/* AI Insight Card */}
+      {payload.explanation && (
+        <div className="ai-insight-card">
+          <div className="ai-insight-header">
+            <div className="ai-badge">
+              <Sparkles size={14} className="ai-sparkle-icon" />
+              <span>ANALISIS AI NARAPANGAN</span>
+            </div>
+            {payload.explanation.source === "gemini" && (
+              <span className="source-badge gemini">Gemini AI</span>
+            )}
+            {payload.explanation.source === "rule_based" && (
+              <span className="source-badge fallback">Sistem</span>
+            )}
+          </div>
+          
+          <h4 className="ai-insight-headline">{payload.explanation.headline}</h4>
+          <p className="ai-insight-body">{payload.explanation.body}</p>
+          
+          {payload.explanation.drivers && payload.explanation.drivers.length > 0 && (
+            <div className="ai-insight-drivers">
+              <span className="drivers-label">FAKTOR PENGGERAK HARGA:</span>
+              <div className="drivers-list">
+                {payload.explanation.drivers.map((drv, idx) => (
+                  <span key={idx} className="driver-pill">{drv}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          <div className="ai-insight-footer">
+            <span className="ai-insight-offer">{payload.explanation.offer}</span>
+            <Link to="/dashboard/konsultasi" className="ai-insight-btn">
+              Konsultasi Strategi &rarr;
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {/* Simulation card */}
+      <div className="sim-card">
+        <div className="sim-header" onClick={() => setIsSimulating(!isSimulating)}>
+          <div className="sim-title-area">
+            <h3 className="sim-title">Simulasi Parameter Pengadaan (Playground)</h3>
+            {hasChanges && <span className="sim-badge">Simulasi Aktif</span>}
+          </div>
+          <span style={{ fontSize: "12px", color: "var(--muted)", fontWeight: 600 }}>
+            {isSimulating ? "Sembunyikan Panel ▲" : "Tampilkan Panel ▼"}
+          </span>
+        </div>
+
+        {isSimulating && (
+          <>
+            <div className="sim-body">
+              <div className="sim-control">
+                <div className="sim-control-header">
+                  <span className="sim-label">Simulasi Pemakaian Cabai Usaha Anda</span>
+                  <span className="sim-val">{simulatedUsage.toFixed(1)} Kg/Hari</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="20"
+                  step="0.5"
+                  value={simulatedUsage}
+                  onChange={(e) => setSimulatedUsage(parseFloat(e.target.value))}
+                  className="sim-slider"
+                />
+              </div>
+
+              <div className="sim-control">
+                <div className="sim-control-header">
+                  <span className="sim-label">Simulasi Kapasitas Penyimpanan Maksimal</span>
+                  <span className="sim-val">{simulatedStorage.toFixed(0)} Kg</span>
+                </div>
+                <input
+                  type="range"
+                  min="5"
+                  max="100"
+                  step="5"
+                  value={simulatedStorage}
+                  onChange={(e) => setSimulatedStorage(parseFloat(e.target.value))}
+                  className="sim-slider"
+                />
+              </div>
+            </div>
+
+            <div className="sim-footer">
+              <span className="sim-disclaimer">
+                *Mengubah slider akan memperbarui rekomendasi pembelian di bawah secara langsung tanpa mengubah database Anda.
+              </span>
+              <div className="sim-actions">
+                <button className="sim-btn-reset" onClick={handleReset} disabled={!hasChanges}>
+                  Reset
+                </button>
+                <button
+                  className="sim-btn-save"
+                  onClick={handleApplyToProfile}
+                  disabled={!hasChanges || isLoading}
+                >
+                  {saveSuccess ? "✓ Tersimpan" : "Terapkan ke Profil"}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
       {/* Chart + Panel Keputusan Stok */}
       <div className="content-grid">
         <div className="chart-panel">
@@ -114,7 +278,7 @@ export function PrediksiPage() {
             <div>
               <h3 className="chart-title">Proyeksi Transmisi Harga 4 Minggu ke Depan</h3>
               <p className="chart-subtitle">
-                {profile.business_type || "UMKM"} · {profile.daily_usage_kg ? `${profile.daily_usage_kg} Kg/Hari` : "Pasar Caringin"}
+                {profile.business_type || "UMKM"} · {simulatedUsage ? `${simulatedUsage.toFixed(1)} Kg/Hari (Simulasi)` : "Caringin"}
               </p>
             </div>
             <div className="chart-controls-legend-wrapper">
@@ -187,13 +351,40 @@ export function PrediksiPage() {
           <div className="forecast-header">
             <div>
               <h3 className="forecast-title">Panel Keputusan Stok</h3>
-              <p className="forecast-subtitle">4 minggu ke depan</p>
+              <p className="forecast-subtitle">Rekomendasi jumlah beli optimal</p>
             </div>
           </div>
           <div className="forecast-list">
-            {forecast.map((row, i) => (
-              <ForecastCard key={row.ds} row={row} index={i} showAction={true} />
-            ))}
+            {forecast.map((row, i) => {
+              const pct = row.change_from_last_pct;
+              let actionText = "Pantau";
+              let actionCls = "pantau";
+              let purchaseQty = 0;
+
+              if (pct > 2.0) {
+                actionText = "Beli";
+                actionCls = "beli";
+                purchaseQty = Math.min(simulatedStorage, simulatedUsage * 14);
+              } else if (pct < -2.0) {
+                actionText = "Tahan";
+                actionCls = "simpan";
+                purchaseQty = Math.max(simulatedUsage * 2, simulatedUsage * 3.5);
+              } else {
+                actionText = "Pantau";
+                actionCls = "pantau";
+                purchaseQty = Math.min(simulatedStorage, simulatedUsage * 7);
+              }
+
+              return (
+                <ForecastCard
+                  key={row.ds}
+                  row={row}
+                  index={i}
+                  showAction={true}
+                  customAction={{ text: actionText, cls: actionCls, volume: purchaseQty }}
+                />
+              );
+            })}
           </div>
         </div>
       </div>

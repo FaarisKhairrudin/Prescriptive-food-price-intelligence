@@ -54,7 +54,11 @@ export function Sidebar() {
       {alert && (
         <div className={`sidebar-alert ${alert.type}`}>
           <div className="sidebar-alert-header">
-            {alert.type === "warning" ? <TriangleAlert size={16} /> : <AlertCircle size={16} />}
+            {alert.type === "warning" ? (
+              <TriangleAlert className="sidebar-alert-icon" size={16} />
+            ) : (
+              <AlertCircle className="sidebar-alert-icon" size={16} />
+            )}
             <span className="sidebar-alert-title">{alert.title}</span>
           </div>
           <p className="sidebar-alert-text">{alert.text}</p>
@@ -64,8 +68,10 @@ export function Sidebar() {
       <button className="sidebar-user" onClick={logout} title="Klik untuk keluar">
         <div className="sidebar-avatar">{profile.business_type ? profile.business_type[0].toUpperCase() : "U"}</div>
         <div className="sidebar-user-info">
-          <div className="sidebar-user-name">{user?.email || "Pengguna"}</div>
-          <div className="sidebar-user-role">{profile.business_type || "UMKM"} · Keluar</div>
+          <div className="sidebar-user-name" title={user?.email || "Pengguna"}>{user?.email || "Pengguna"}</div>
+          <div className="sidebar-user-role" title={`${profile.business_type || "UMKM"} · Keluar`}>
+            {profile.business_type || "UMKM"} · Keluar
+          </div>
         </div>
       </button>
     </aside>

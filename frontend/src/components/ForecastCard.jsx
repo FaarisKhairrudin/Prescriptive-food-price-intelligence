@@ -1,14 +1,14 @@
 import { formatRp, formatSigned, getStockAction } from "../utils/helpers";
 import { ArrowUpRight, ArrowDownRight } from "lucide-react";
 
-export function ForecastCard({ row, index, showAction = false }) {
+export function ForecastCard({ row, index, showAction = false, customAction = null }) {
   const isUp = row.change_from_last_pct >= 0;
   
   // Parse date to get just the day (e.g., "26")
   const dateObj = new Date(row.ds);
   const day = dateObj.getDate().toString().padStart(2, '0');
 
-  const action = getStockAction(row.change_from_last_pct);
+  const action = customAction || getStockAction(row.change_from_last_pct);
 
   let tagText = "Normal";
   let tagClass = "normal";
@@ -31,7 +31,7 @@ export function ForecastCard({ row, index, showAction = false }) {
       </div>
       {showAction && (
         <div className={`fi-action ${action.cls}`}>
-          {action.text}
+          {action.text} {action.volume != null && `(${action.volume.toFixed(1)} Kg)`}
         </div>
       )}
     </div>

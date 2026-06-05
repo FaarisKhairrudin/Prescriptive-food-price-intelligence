@@ -22,5 +22,7 @@ export const QUICK_QUESTIONS = [
   "Berapa harga cabai rawit minggu ini?",
   "Apakah saya harus nyetok sekarang?",
   "Kapan prediksi harga cabai akan turun?",
-  "Bagaimana strategi anggaran 4 minggu ke depan?"
+  "Bagaimana strategi anggaran 4 minggu ke depan?",
+  "Bantu estimasi pemakaian cabai harian usaha saya",
+  "Berapa kapasitas penyimpanan cabai yang ideal?"
 ];
