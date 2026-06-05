@@ -29,14 +29,14 @@ export function TopBar() {
       <div className="top-bar-actions">
         <div className="selector-group">
           <select className="premium-select" defaultValue="cabai-rawit-merah">
-            <option value="cabai-rawit-merah">🌶️ Cabai Rawit Merah</option>
-            <option value="bawang-merah" disabled>🧅 Bawang Merah (Segera)</option>
-            <option value="bawang-putih" disabled>🧄 Bawang Putih (Segera)</option>
+            <option value="cabai-rawit-merah">Cabai Rawit Merah</option>
+            <option value="bawang-merah" disabled>Bawang Merah (Segera)</option>
+            <option value="bawang-putih" disabled>Bawang Putih (Segera)</option>
           </select>
           <select className="premium-select" defaultValue="pasar-caringin">
-            <option value="pasar-caringin">🏪 Pasar Caringin</option>
-            <option value="pasar-sederhana" disabled>🏪 Pasar Sederhana (Segera)</option>
-            <option value="pasar-kosambi" disabled>🏪 Pasar Kosambi (Segera)</option>
+            <option value="pasar-caringin">Pasar Caringin</option>
+            <option value="pasar-sederhana" disabled>Pasar Sederhana (Segera)</option>
+            <option value="pasar-kosambi" disabled>Pasar Kosambi (Segera)</option>
           </select>
         </div>
         <div className="search-box">
