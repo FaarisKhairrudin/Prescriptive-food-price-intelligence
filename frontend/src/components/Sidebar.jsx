@@ -1,6 +1,5 @@
-import { LayoutDashboard, TrendingUp, History, MessageSquare, Settings, AlertCircle, TriangleAlert } from "lucide-react";
+import { LayoutDashboard, TrendingUp, History, MessageSquare, Settings, AlertCircle, TriangleAlert, ChevronRight } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
-import { formatSigned } from "../utils/helpers";
 import { useAppContext } from "../context/AppContext";
 
 export function Sidebar() {
@@ -10,7 +9,6 @@ export function Sidebar() {
   const getAlert = () => {
     if (!payload?.summary) return null;
     const code = payload.summary.signal_code;
-    const isUp = payload.summary.pct_change_avg >= 0;
     const pct = Math.abs(payload.summary.pct_change_avg).toFixed(1);
 
     if (code === "stock_early") {
@@ -23,6 +21,14 @@ export function Sidebar() {
 
   const alert = getAlert();
 
+  const navItems = [
+    { to: "/dashboard", icon: LayoutDashboard, label: "Overview" },
+    { to: "/dashboard/prediksi", icon: TrendingUp, label: "Prediksi" },
+    { to: "/dashboard/riwayat", icon: History, label: "Riwayat" },
+    { to: "/dashboard/konsultasi", icon: MessageSquare, label: "Konsultasi AI" },
+    { to: "/dashboard/pengaturan", icon: Settings, label: "Pengaturan" },
+  ];
+
   return (
     <aside className="sidebar">
       <div className="sidebar-brand">
@@ -31,34 +37,27 @@ export function Sidebar() {
 
       <div className="sidebar-label">MENU</div>
       <nav className="sidebar-nav">
-        <Link to="/dashboard" className={`nav-item ${pathname === "/dashboard" ? "active" : ""}`}>
-          <LayoutDashboard size={20} className="nav-icon" /> Overview
-        </Link>
-        <Link to="/dashboard/prediksi" className={`nav-item ${pathname === "/dashboard/prediksi" ? "active" : ""}`}>
-          <TrendingUp size={20} className="nav-icon" /> Prediksi
-        </Link>
-        <Link to="/dashboard/riwayat" className={`nav-item ${pathname === "/dashboard/riwayat" ? "active" : ""}`}>
-          <History size={20} className="nav-icon" /> Riwayat
-        </Link>
-        <Link to="/dashboard/konsultasi" className={`nav-item ${pathname === "/dashboard/konsultasi" ? "active" : ""}`}>
-          <MessageSquare size={20} className="nav-icon" /> Konsultasi AI
-        </Link>
-        <Link to="/dashboard/pengaturan" className={`nav-item ${pathname === "/dashboard/pengaturan" ? "active" : ""}`}>
-          <Settings size={20} className="nav-icon" /> Pengaturan
-        </Link>
+        {navItems.map(({ to, icon: Icon, label }) => {
+          const isActive = pathname === to;
+          return (
+            <Link key={to} to={to} className={`nav-item ${isActive ? "active" : ""}`}>
+              <Icon size={20} className="nav-icon" />
+              <span className="nav-label">{label}</span>
+              {isActive && <ChevronRight size={16} className="nav-chevron" />}
+            </Link>
+          );
+        })}
       </nav>
 
       <div className="sidebar-spacer" />
 
       {alert && (
         <div className={`sidebar-alert ${alert.type}`}>
-          <div className="sidebar-alert-icon">
+          <div className="sidebar-alert-header">
             {alert.type === "warning" ? <TriangleAlert size={16} /> : <AlertCircle size={16} />}
+            <span className="sidebar-alert-title">{alert.title}</span>
           </div>
-          <div className="sidebar-alert-content">
-            <strong>{alert.title}</strong>
-            <p>{alert.text}</p>
-          </div>
+          <p className="sidebar-alert-text">{alert.text}</p>
         </div>
       )}
 

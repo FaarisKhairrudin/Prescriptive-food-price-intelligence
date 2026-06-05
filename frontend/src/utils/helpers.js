@@ -39,9 +39,9 @@ export function getCalendarLabel(row) {
 }
 
 export function getStockAction(pct) {
-  if (pct < -2.0) return { text: "Tahan", cls: "hold" };
-  if (pct > 2.0) return { text: "Beli", cls: "buy" };
-  return { text: "Normal", cls: "normal" };
+  if (pct > 2.0) return { text: "Beli", cls: "beli" };
+  if (pct < -2.0) return { text: "Tahan", cls: "simpan" };
+  return { text: "Pantau", cls: "pantau" };
 }
 
 export function writeStored(key, payload) {
@@ -50,6 +50,41 @@ export function writeStored(key, payload) {
   } catch (e) {
     console.error("Storage error:", e);
   }
+}
+
+export function buildChartData(history, forecast) {
+  const monthNames = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+  const rows = [];
+
+  // Add historical data points
+  if (history && history.length > 0) {
+    history.forEach((h) => {
+      const d = new Date(h.ds);
+      rows.push({
+        date: h.ds,
+        label: `${d.getDate()} ${monthNames[d.getMonth()]}`,
+        actual: h.actual_price,
+        forecast: null,
+      });
+    });
+  }
+
+  // Add forecast data points — first forecast connects to last actual
+  if (forecast && forecast.length > 0) {
+    const lastActual = history && history.length > 0 ? history[history.length - 1].actual_price : null;
+
+    forecast.forEach((f, i) => {
+      const d = new Date(f.ds);
+      rows.push({
+        date: f.ds,
+        label: `${d.getDate()} ${monthNames[d.getMonth()]}`,
+        actual: i === 0 ? lastActual : null,  // bridge point
+        forecast: f.predicted_price,
+      });
+    });
+  }
+
+  return rows;
 }
 
 export function readStored(key) {

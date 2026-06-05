@@ -29,7 +29,7 @@ function App() {
         
         {error && <div className="error-banner"><AlertTriangle size={16} /><span>{error}</span></div>}
         
-        {isLoading && !payload ? (
+        {isLoading ? (
           <InteractiveLoader />
         ) : (
           <Outlet />

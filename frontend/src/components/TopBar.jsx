@@ -1,6 +1,7 @@
-import { Bell, Search } from "lucide-react";
+import { Bell, Search, Eye } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { formatDate } from "../utils/helpers";
+import { useAppContext } from "../context/AppContext";
 
 const PAGE_TITLES = {
   "/dashboard": "Overview",
@@ -12,7 +13,9 @@ const PAGE_TITLES = {
 
 export function TopBar() {
   const { pathname } = useLocation();
+  const { profile } = useAppContext();
   const title = PAGE_TITLES[pathname] || "Dashboard";
+  const isOverview = pathname === "/dashboard";
 
   return (
     <header className="top-bar">
@@ -20,7 +23,7 @@ export function TopBar() {
         <div className="page-date">{formatDate(new Date().toISOString())}</div>
         <h1 className="page-title">{title}</h1>
         <div className="page-subtitle">
-          Pasar Bandung
+          {isOverview ? `Pantau harga cabai rawit merah Bandung` : 'Pasar Bandung'}
         </div>
       </div>
       <div className="top-bar-actions">

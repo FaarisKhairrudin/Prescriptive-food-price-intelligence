@@ -1,6 +1,7 @@
-import { ArrowUpRight, ArrowDownRight, RefreshCw } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, RefreshCw, Calendar, ChevronRight } from "lucide-react";
+import { useMemo } from "react";
 import { ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
-import { formatRp, formatSigned, formatCurrency } from "../utils/helpers";
+import { formatRp, formatSigned, formatCurrency, formatDate, buildChartData } from "../utils/helpers";
 import { CHART_COLORS } from "../utils/constants";
 import { ForecastCard } from "../components/ForecastCard";
 import { AIConsultSection } from "../components/AIConsultSection";
@@ -8,80 +9,130 @@ import { useAppContext } from "../context/AppContext";
 import { EmptyState } from "../components/EmptyState";
 
 export function PrediksiPage() {
-  const { payload, runPrediction, isLoading, profile } = useAppContext();
+  const { payload, runPrediction, isLoading, profile, setProfile } = useAppContext();
   
   if (!payload) return <EmptyState />;
 
-  const { summary, chartData, forecast } = payload;
+  const { summary, history, forecast } = payload;
+  const chartData = useMemo(() => buildChartData(history, forecast), [history, forecast]);
+
+  const peak = useMemo(
+    () => forecast.reduce((a, b) => a.predicted_price > b.predicted_price ? a : b),
+    [forecast]
+  );
 
   return (
     <div className="page-container">
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-        <button
-          className="notif-btn"
-          onClick={runPrediction}
-          disabled={isLoading}
-          title="Refresh prediksi"
-        >
-          <RefreshCw size={16} className={isLoading ? "spin" : ""} />
+      {/* Prediction Input Bar */}
+      <div className="prediction-input-bar">
+        <div className="input-field">
+          <label>Jenis Usaha F&B</label>
+          <input
+            placeholder="contoh: Seblak, Warung Nasi"
+            value={profile.business_type || ""}
+            onChange={(e) => setProfile(p => ({ ...p, business_type: e.target.value }))}
+          />
+        </div>
+        <div className="input-field">
+          <label>Kebutuhan Stok Mingguan (Kg)</label>
+          <input
+            type="number"
+            min="0"
+            step="0.5"
+            placeholder="contoh: 5"
+            value={profile.daily_usage_kg || ""}
+            onChange={(e) => setProfile(p => ({ ...p, daily_usage_kg: e.target.value }))}
+          />
+        </div>
+        <button className="prediction-run-btn" onClick={runPrediction} disabled={isLoading}>
+          {isLoading ? <RefreshCw size={16} className="spin" /> : null}
+          <span>Mulai Analisis</span>
+          <ChevronRight size={16} />
         </button>
       </div>
 
-      <div className="metric-row">
+      {/* 4 KPI Cards */}
+      <div className="metric-row four">
+        {/* Card 1: Harga Saat Ini */}
         <div className="metric-card">
           <div className="metric-header">
-            <span className="metric-label">PREDIKSI MINGGU DEPAN</span>
-            <span className="metric-badge dots">···</span>
+            <span className="metric-label">HARGA SAAT INI</span>
+            <span className="metric-badge live">LIVE</span>
+          </div>
+          <div className="metric-value-row">
+            <span className="metric-value">{formatRp(summary.last_actual_price)}</span>
+            <span className="metric-unit">/kg</span>
+          </div>
+          <div className="metric-detail">
+            <Calendar size={14} className="metric-detail-icon" />
+            <span className="metric-detail-text">{formatDate(summary.last_actual_date)} · Pasar Caringin</span>
+          </div>
+        </div>
+
+        {/* Card 2: Prediksi Minggu 1 */}
+        <div className="metric-card highlighted">
+          <div className="metric-header">
+            <span className="metric-label">PREDIKSI MINGGU 1</span>
+            <span className="metric-badge action">W+1</span>
           </div>
           <div className="metric-value-row">
             <span className="metric-value">{formatRp(forecast[0].predicted_price)}</span>
             <span className="metric-unit">/kg</span>
           </div>
           <div className="metric-detail">
-            <span className={`change-badge ${forecast[0].pct_change >= 0 ? "up" : "down"}`}>
-              {forecast[0].pct_change >= 0 ? <ArrowUpRight size={12} className="arrow-icon" /> : <ArrowDownRight size={12} className="arrow-icon" />}
-              {formatSigned(forecast[0].pct_change)}
+            <span className={`change-badge ${forecast[0].change_from_last_pct >= 0 ? "up" : "down"}`}>
+              {forecast[0].change_from_last_pct >= 0 ? <ArrowUpRight size={12} className="arrow-icon" /> : <ArrowDownRight size={12} className="arrow-icon" />}
+              {formatSigned(forecast[0].change_from_last_pct)}
             </span>
             <span className="metric-detail-text">vs harga terakhir</span>
           </div>
         </div>
 
+        {/* Card 3: Puncak Prediksi */}
         <div className="metric-card">
           <div className="metric-header">
-            <span className="metric-label">RATA-RATA PREDIKSI 4 MINGGU</span>
+            <span className="metric-label">PUNCAK PREDIKSI</span>
             <span className="metric-badge dots">···</span>
           </div>
           <div className="metric-value-row">
-            <span className="metric-value">{formatRp(summary.avg_predicted_price)}</span>
+            <span className="metric-value">{formatRp(peak.predicted_price)}</span>
             <span className="metric-unit">/kg</span>
           </div>
           <div className="metric-detail">
-            <span className={`change-badge ${summary.pct_change_avg >= 0 ? "up" : "down"}`}>
-              {summary.pct_change_avg >= 0 ? <ArrowUpRight size={12} className="arrow-icon" /> : <ArrowDownRight size={12} className="arrow-icon" />}
-              {formatSigned(summary.pct_change_avg)}
-            </span>
-            <span className="metric-detail-text">vs minggu ini</span>
+            <Calendar size={14} className="metric-detail-icon" />
+            <span className="metric-detail-text">{formatDate(peak.ds)}</span>
           </div>
         </div>
 
+        {/* Card 4: Tren Keseluruhan */}
         <div className="metric-card signal">
           <div className="metric-header">
-            <span className="metric-label">SINYAL PENGADAAN</span>
+            <span className="metric-label">TREN KESELURUHAN</span>
           </div>
           <div className="metric-value-row">
-            <span className="metric-value">
-              {summary.signal_code === "stock_early" ? "BELI SEKARANG" : summary.signal_code === "hold_purchase" ? "TAHAN" : "NORMAL"}
-            </span>
+            <span className="metric-value">{formatSigned(summary.pct_change_avg)}</span>
           </div>
           <div className="metric-detail">
-            <span className="metric-detail-text">{summary.recommendation_short}</span>
+            <span className="metric-detail-text">Rata-rata 4 minggu ke depan</span>
           </div>
         </div>
       </div>
 
+      {/* Chart + Panel Keputusan Stok */}
       <div className="content-grid">
         <div className="chart-panel">
-          <h3 className="chart-title">Tren Harga (Historis & Prediksi AI)</h3>
+          <div className="chart-header">
+            <div>
+              <h3 className="chart-title">Proyeksi Transmisi Harga 4 Minggu ke Depan</h3>
+              <p className="chart-subtitle">
+                {profile.business_type || "UMKM"} · {profile.daily_usage_kg ? `${profile.daily_usage_kg} Kg/Hari` : "Pasar Bandung"}
+              </p>
+            </div>
+            <div className="chart-legend">
+              <span className="legend-item"><span className="legend-dot actual"></span>Historis</span>
+              <span className="legend-item"><span className="legend-dot forecast"></span>Prediksi</span>
+            </div>
+          </div>
           <ResponsiveContainer width="100%" height={280}>
             <ComposedChart data={chartData} margin={{ top: 18, right: 16, left: 0, bottom: 8 }}>
               <CartesianGrid stroke={CHART_COLORS.grid} strokeDasharray="4 4" vertical={false} />
@@ -133,14 +184,13 @@ export function PrediksiPage() {
         <div className="forecast-panel">
           <div className="forecast-header">
             <div>
-              <h3 className="forecast-title">Panel keputusan stok</h3>
+              <h3 className="forecast-title">Panel Keputusan Stok</h3>
               <p className="forecast-subtitle">4 minggu ke depan</p>
             </div>
-            <span className="forecast-ai-label">AI v2.4</span>
           </div>
           <div className="forecast-list">
             {forecast.map((row, i) => (
-              <ForecastCard key={row.ds} row={row} index={i} showAction={true} allForecast={forecast} />
+              <ForecastCard key={row.ds} row={row} index={i} showAction={true} />
             ))}
           </div>
         </div>

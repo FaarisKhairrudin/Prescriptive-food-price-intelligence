@@ -1,16 +1,19 @@
-import { Calendar, ArrowUpRight, ArrowDownRight, RefreshCw } from "lucide-react";
+import { Calendar, ArrowUpRight, ArrowDownRight } from "lucide-react";
+import { useMemo } from "react";
 import { ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
-import { formatRp, formatSigned, formatDate, formatCurrency } from "../utils/helpers";
+import { formatRp, formatSigned, formatDate, formatCurrency, buildChartData } from "../utils/helpers";
 import { CHART_COLORS } from "../utils/constants";
 import { useAppContext } from "../context/AppContext";
 import { EmptyState } from "../components/EmptyState";
+import { ForecastCard } from "../components/ForecastCard";
 
 export function OverviewPage() {
-  const { payload, runPrediction, isLoading } = useAppContext();
-  
+  const { payload, profile } = useAppContext();
+
   if (!payload) return <EmptyState />;
 
-  const { summary, chartData } = payload;
+  const { summary, history, forecast } = payload;
+  const chartData = useMemo(() => buildChartData(history, forecast), [history, forecast]);
 
   const actionBadge = summary.signal_code === "stock_early"
     ? "BELI SEKARANG"
@@ -20,15 +23,9 @@ export function OverviewPage() {
 
   return (
     <div className="page-container">
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-        <button
-          className="notif-btn"
-          onClick={runPrediction}
-          disabled={isLoading}
-          title="Refresh prediksi"
-        >
-          <RefreshCw size={16} className={isLoading ? "spin" : ""} />
-        </button>
+      <div className="overview-greeting">
+        <h2>Selamat datang kembali, {profile.business_type || 'Pengguna'} 👋</h2>
+        <p>Data per {formatDate(new Date().toISOString())}</p>
       </div>
 
       <div className="metric-row">
@@ -76,59 +73,84 @@ export function OverviewPage() {
             <span className="metric-value">{actionBadge}</span>
           </div>
           <div className="metric-detail">
-            <span className="metric-detail-text">{summary.recommendation_short}</span>
+            <span className="metric-detail-text">{summary?.recommendation_short || summary.recommendation || summary.signal_label}</span>
           </div>
         </div>
       </div>
 
-      <div className="chart-panel">
-        <h3 className="chart-title">Tren Harga (Historis & Prediksi AI)</h3>
-        <ResponsiveContainer width="100%" height={280}>
-          <ComposedChart data={chartData} margin={{ top: 18, right: 16, left: 0, bottom: 8 }}>
-            <CartesianGrid stroke={CHART_COLORS.grid} strokeDasharray="4 4" vertical={false} />
-            <XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={16} />
-            <YAxis
-              tickFormatter={(v) => `${Math.round(v / 1000)}k`}
-              tickLine={false}
-              axisLine={false}
-              width={48}
-            />
-            <Tooltip
-              formatter={(v) => formatCurrency(v)}
-              labelFormatter={(_, rows) => rows?.[0]?.payload?.date || ""}
-              contentStyle={{
-                borderRadius: 8,
-                border: `1px solid ${CHART_COLORS.tooltipBorder}`,
-                boxShadow: CHART_COLORS.tooltipShadow,
-              }}
-            />
-            <Area
-              type="monotone"
-              dataKey="forecast"
-              fill={CHART_COLORS.forecastFill}
-              fillOpacity={0.22}
-              stroke="none"
-              connectNulls
-            />
-            <Line
-              type="monotone"
-              dataKey="actual"
-              stroke={CHART_COLORS.actual}
-              strokeWidth={3}
-              dot={{ r: 4, fill: CHART_COLORS.actual }}
-              connectNulls
-            />
-            <Line
-              type="monotone"
-              dataKey="forecast"
-              stroke={CHART_COLORS.forecast}
-              strokeWidth={3}
-              strokeDasharray="8 7"
-              dot={{ r: 4, fill: CHART_COLORS.forecast }}
-              connectNulls
-            />
-          </ComposedChart>
-        </ResponsiveContainer>
+      <div className="content-grid">
+        <div className="chart-panel">
+          <div className="chart-header">
+            <div>
+              <h3 className="chart-title">Pergerakan Harga Bandung</h3>
+              <p className="chart-subtitle">Pasar Bandung · Historis + Prediksi 4 minggu</p>
+            </div>
+            <div className="chart-legend">
+              <span className="legend-item"><span className="legend-dot actual"></span>Historis</span>
+              <span className="legend-item"><span className="legend-dot forecast"></span>Prediksi</span>
+            </div>
+          </div>
+          <ResponsiveContainer width="100%" height={280}>
+            <ComposedChart data={chartData} margin={{ top: 18, right: 16, left: 0, bottom: 8 }}>
+              <CartesianGrid stroke={CHART_COLORS.grid} strokeDasharray="4 4" vertical={false} />
+              <XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={16} />
+              <YAxis
+                tickFormatter={(v) => `${Math.round(v / 1000)}k`}
+                tickLine={false}
+                axisLine={false}
+                width={48}
+              />
+              <Tooltip
+                formatter={(v) => formatCurrency(v)}
+                labelFormatter={(_, rows) => rows?.[0]?.payload?.date || ""}
+                contentStyle={{
+                  borderRadius: 8,
+                  border: `1px solid ${CHART_COLORS.tooltipBorder}`,
+                  boxShadow: CHART_COLORS.tooltipShadow,
+                }}
+              />
+              <Area
+                type="monotone"
+                dataKey="forecast"
+                fill={CHART_COLORS.forecastFill}
+                fillOpacity={0.22}
+                stroke="none"
+                connectNulls
+              />
+              <Line
+                type="monotone"
+                dataKey="actual"
+                stroke={CHART_COLORS.actual}
+                strokeWidth={3}
+                dot={{ r: 4, fill: CHART_COLORS.actual }}
+                connectNulls
+              />
+              <Line
+                type="monotone"
+                dataKey="forecast"
+                stroke={CHART_COLORS.forecast}
+                strokeWidth={3}
+                strokeDasharray="8 7"
+                dot={{ r: 4, fill: CHART_COLORS.forecast }}
+                connectNulls
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="forecast-panel">
+          <div className="forecast-header">
+            <div>
+              <h3 className="forecast-title">Forecast Mingguan</h3>
+              <p className="forecast-subtitle">4 minggu ke depan</p>
+            </div>
+          </div>
+          <div className="forecast-list">
+            {forecast.map((row, i) => (
+              <ForecastCard key={row.ds} row={row} index={i} />
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );

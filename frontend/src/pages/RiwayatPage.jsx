@@ -1,7 +1,5 @@
-import { formatRp, formatDate, getCalendarLabel } from "../utils/helpers";
-import { AIConsultSection } from "../components/AIConsultSection";
+import { formatRp, formatDate } from "../utils/helpers";
 import { useAppContext } from "../context/AppContext";
-import { DEFAULT_PROFILE } from "../utils/constants";
 
 export function RiwayatPage() {
   const { payload } = useAppContext();
@@ -10,17 +8,17 @@ export function RiwayatPage() {
     <div className="page-container">
       <div className="metric-row four">
         <div className="metric-card">
-          <div className="metric-header"><span className="metric-label">AKURASI RATA-RATA</span></div>
+          <div className="metric-header"><span className="metric-label">AKURASI ARAH (DIRECTIONAL)</span></div>
           <div className="metric-value-row"><span className="metric-value">--</span></div>
           <div className="metric-detail"><span className="metric-detail-text">Belum tersedia</span></div>
         </div>
         <div className="metric-card">
-          <div className="metric-header"><span className="metric-label">MAE (Rp)</span></div>
+          <div className="metric-header"><span className="metric-label">RATA-RATA ERROR (MAE)</span></div>
           <div className="metric-value-row"><span className="metric-value">--</span></div>
           <div className="metric-detail"><span className="metric-detail-text">Belum tersedia</span></div>
         </div>
         <div className="metric-card">
-          <div className="metric-header"><span className="metric-label">MAPE (%)</span></div>
+          <div className="metric-header"><span className="metric-label">MARGIN ERROR (MAPE)</span></div>
           <div className="metric-value-row"><span className="metric-value">--</span></div>
           <div className="metric-detail"><span className="metric-detail-text">Belum tersedia</span></div>
         </div>
@@ -35,33 +33,45 @@ export function RiwayatPage() {
         <div className="riwayat-header">
           <h3 className="riwayat-title">Seberapa tepat tebakan AI?</h3>
           <p className="riwayat-subtitle">
-            Perbandingan antara harga yang diprediksi AI minggu lalu dengan harga aktual yang tercatat di pasar.
-            Fitur ini akan aktif setelah tersedia data prediksi sebelumnya yang bisa dibandingkan dengan harga aktual terbaru.
+            Membandingkan harga yang ditebak AI vs harga yang benar-benar terjadi di pasar — 4 minggu terakhir
           </p>
         </div>
 
         {payload && payload.forecast ? (
           <div className="comparison-list">
-            {payload.forecast.map((row) => (
-              <div className="comparison-row" key={row.ds}>
-                <div className="comparison-week">
-                  <span className="comp-label">Minggu {row.week}</span>
-                  <span>{formatDate(row.ds)}</span>
+            {payload.forecast.map((row, i) => {
+              const dateObj = new Date(row.ds);
+              const day = dateObj.getDate().toString().padStart(2, '0');
+              const monthNames = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+              const month = monthNames[dateObj.getMonth()];
+              const year = dateObj.getFullYear();
+
+              return (
+                <div className="comparison-row-new" key={row.ds}>
+                  <div className="comp-week-pill">
+                    <span className="comp-w">W+{i + 1}</span>
+                    <span className="comp-day">{day}</span>
+                  </div>
+                  <div className="comp-date-label">
+                    {day} {month} {year}
+                  </div>
+
+                  <div className="comp-cell">
+                    <div className="comp-price">{formatRp(row.predicted_price)}</div>
+                    <span className="comp-tag prediksi">Prediksi</span>
+                  </div>
+
+                  <div className="comp-cell">
+                    <div className="comp-price muted">Belum tersedia</div>
+                    <span className="comp-tag aktual">Harga Riil</span>
+                  </div>
+
+                  <div className="comp-selisih">
+                    Selisih--
+                  </div>
                 </div>
-                <div className="comparison-predicted">
-                  <span className="comp-label">Prediksi</span>
-                  <span>{formatRp(row.predicted_price)}</span>
-                </div>
-                <div className="comparison-actual">
-                  <span className="comp-label">Aktual</span>
-                  <span>Belum tersedia</span>
-                </div>
-                <div className="comparison-diff">
-                  <span className="comp-label">Selisih</span>
-                  <span>--</span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <p style={{ color: "#9e9a93", fontSize: 14, marginTop: 16 }}>
@@ -69,8 +79,6 @@ export function RiwayatPage() {
           </p>
         )}
       </section>
-
-      {payload && <AIConsultSection payload={payload} businessProfile={DEFAULT_PROFILE} />}
     </div>
   );
 }
