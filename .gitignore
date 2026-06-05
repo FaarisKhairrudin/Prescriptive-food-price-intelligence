@@ -20,3 +20,4 @@ frontend/dist/
 lightning_logs/
 logs/
 .env
+*.db

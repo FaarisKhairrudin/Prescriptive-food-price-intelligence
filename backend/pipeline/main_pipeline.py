@@ -1,6 +1,6 @@
 import pandas as pd
 from pathlib import Path
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 try:
     from .pihps import get_pihps_cabai_rawit_bandung
@@ -10,7 +10,12 @@ except ImportError:
     from pihps import get_pihps_cabai_rawit_bandung
     from nasa_weather import get_nasa_weather_garut
     from hijri_features import generate_hijri_features as _generate_hijri_features
-
+try:
+    from backend.database import get_connection
+except ImportError:
+    import sys
+    sys.path.append(str(Path(__file__).resolve().parents[2]))
+    from backend.database import get_connection
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CONFIG
@@ -82,28 +87,56 @@ def generate_hijri_features(
     return df
 
 
+def _safe_float(val):
+    try:
+        if pd.isna(val):
+            return None
+        return float(val)
+    except (TypeError, ValueError):
+        return None
+
+
 def build_daily_dataset(
     start_date: str,
     end_date: str,
     headless: bool = True
 ) -> pd.DataFrame:
     """
-    Ambil dan gabungkan dengan daily file caching:
+    Ambil dan gabungkan:
     - Harga Cabai Rawit Merah Kota Bandung dari PIHPS
     - Cuaca Garut dari NASA POWER
+    Menggunakan SQLite database sebagai layer persistent cache.
     """
-    cache_dir = PROJECT_BACKEND_DIR / "data_cache"
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_file = cache_dir / f"daily_{start_date}_{end_date}.csv"
+    conn = get_connection()
+    cursor = conn.cursor()
 
-    if cache_file.exists():
-        print(f"[CACHE] Memuat daily dataset gabungan dari cache: {cache_file.name}")
-        df = pd.read_csv(cache_file)
-        df["Tanggal"] = pd.to_datetime(df["Tanggal"])
-        return df
+    # Cek apakah data untuk end_date sudah pernah di-crawl hari ini
+    cursor.execute("SELECT COUNT(*) FROM crawls WHERE run_date = ?", (end_date,))
+    already_crawled = cursor.fetchone()[0] > 0
+    conn.close()
 
-    print(f"[Ingestion] Cache miss. Mengambil data dari PIHPS dan NASA Weather...")
-    
+    if already_crawled:
+        print(f"[DATABASE] Cache hit: Memuat daily dataset dari SQLite ({start_date} s.d. {end_date})")
+        conn = get_connection()
+        query = """
+            SELECT p.date AS Tanggal, p.price_per_kg AS Harga, prectotcorr AS Garut_PRECTOTCORR, t2m AS Garut_T2M, rh2m AS Garut_RH2M
+            FROM (
+                SELECT date, price_per_kg FROM prices
+                WHERE commodity = 'Cabai Rawit Merah' AND market = 'Pasar Caringin'
+                  AND date >= ? AND date <= ?
+            ) p
+            LEFT JOIN weather w ON p.date = w.date
+            ORDER BY p.date ASC
+        """
+        df_daily = pd.read_sql_query(query, conn, params=(start_date, end_date))
+        conn.close()
+
+        if not df_daily.empty:
+            df_daily["Tanggal"] = pd.to_datetime(df_daily["Tanggal"])
+            return df_daily
+
+    print(f"[DATABASE] Cache miss untuk {end_date}. Mengambil data dari PIHPS dan NASA Weather...")
+
     # 1. PIHPS Price Data
     df_price = get_pihps_cabai_rawit_bandung(
         start_date=start_date,
@@ -111,10 +144,16 @@ def build_daily_dataset(
         headless=headless
     )
 
-    df_price = df_price.rename(columns={
-        "tanggal": "Tanggal",
-        "harga": "Harga"
-    })
+    # Simpan ke database
+    conn = get_connection()
+    for _, row in df_price.iterrows():
+        dt_str = pd.to_datetime(row["tanggal"]).strftime("%Y-%m-%d")
+        conn.execute("""
+            INSERT OR REPLACE INTO prices (date, commodity, market, price_per_kg)
+            VALUES (?, 'Cabai Rawit Merah', 'Pasar Caringin', ?)
+        """, (dt_str, _safe_float(row["harga"])))
+    conn.commit()
+    conn.close()
 
     # 2. NASA Weather Garut
     df_weather = get_nasa_weather_garut(
@@ -122,23 +161,42 @@ def build_daily_dataset(
         end_date=end_date
     )
 
-    # 3. Merge harian
-    df_daily = df_price.merge(
-        df_weather,
-        on="Tanggal",
-        how="left"
-    )
+    # Simpan ke database
+    conn = get_connection()
+    for _, row in df_weather.iterrows():
+        dt_str = pd.to_datetime(row["Tanggal"]).strftime("%Y-%m-%d")
+        conn.execute("""
+            INSERT OR REPLACE INTO weather (date, prectotcorr, t2m, rh2m)
+            VALUES (?, ?, ?, ?)
+        """, (dt_str, _safe_float(row["Garut_PRECTOTCORR"]), _safe_float(row["Garut_T2M"]), _safe_float(row["Garut_RH2M"])))
+    
+    # Catat bahwa crawl untuk end_date telah dilakukan hari ini
+    now_ts = int(datetime.now().timestamp())
+    conn.execute("""
+        INSERT OR REPLACE INTO crawls (run_date, timestamp)
+        VALUES (?, ?)
+    """, (end_date, now_ts))
+    
+    conn.commit()
+    conn.close()
 
-    df_daily = (
-        df_daily
-        .sort_values("Tanggal")
-        .reset_index(drop=True)
-    )
-
-    # Save to cache
-    df_daily.to_csv(cache_file, index=False)
-    print(f"[CACHE] Berhasil menyimpan daily dataset gabungan ke cache: {cache_file.name}")
-
+    # Load data yang sudah digabungkan dari database
+    conn = get_connection()
+    query = """
+        SELECT p.date AS Tanggal, p.price_per_kg AS Harga, prectotcorr AS Garut_PRECTOTCORR, t2m AS Garut_T2M, rh2m AS Garut_RH2M
+        FROM (
+            SELECT date, price_per_kg FROM prices
+            WHERE commodity = 'Cabai Rawit Merah' AND market = 'Pasar Caringin'
+              AND date >= ? AND date <= ?
+        ) p
+        LEFT JOIN weather w ON p.date = w.date
+        ORDER BY p.date ASC
+    """
+    df_daily = pd.read_sql_query(query, conn, params=(start_date, end_date))
+    conn.close()
+    
+    df_daily["Tanggal"] = pd.to_datetime(df_daily["Tanggal"])
+    print(f"[DATABASE] Daily dataset berhasil disimpan dan digabungkan di SQLite.")
     return df_daily
 
 
@@ -519,6 +577,22 @@ def predict_future_prices(
         .round(0)
         .astype(int)
     )
+
+    # Save forecasts to DB
+    try:
+        conn = get_connection()
+        forecast_date = pd.Timestamp.today().strftime("%Y-%m-%d")
+        for _, row in prediction_df.iterrows():
+            target_date = pd.to_datetime(row["ds"]).strftime("%Y-%m-%d")
+            conn.execute("""
+                INSERT OR REPLACE INTO forecasts (forecast_date, target_date, predicted_price, model_version)
+                VALUES (?, ?, ?, ?)
+            """, (forecast_date, target_date, float(row["predicted_price"]), "NBEATSx"))
+        conn.commit()
+        conn.close()
+        print(f"[DATABASE] Forecasts saved to SQLite for forecast_date={forecast_date}.")
+    except Exception as e:
+        print(f"[DATABASE] Error saving forecasts to SQLite: {e}")
 
     return prediction_df
 
