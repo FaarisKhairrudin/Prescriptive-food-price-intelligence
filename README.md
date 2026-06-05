@@ -39,19 +39,38 @@ Folder `backend/script/` dipertahankan sebagai wrapper legacy agar import lama t
 
 ### Setup Environment
 
-1. Install dependency Python
+1. Setup Virtual Environment (Rekomendasi)
+
+Buat dan aktifkan virtual environment Python untuk mengisolasi package:
 
 ```powershell
-py -3.12 -m pip install -r requirements.txt
+# Buat venv
+py -3.12 -m venv .venv
+
+# Aktifkan venv di PowerShell
+.\.venv\Scripts\Activate.ps1
+
+# Atau aktifkan venv di CMD
+.\.venv\Scripts\activate.bat
 ```
 
-2. Install browser untuk Playwright
+2. Install dependency Python
+
+Pastikan virtual environment telah aktif, lalu jalankan:
 
 ```powershell
-py -3.12 -m playwright install chromium
+pip install -r requirements.txt
 ```
 
-3. Install dependency frontend
+3. Install browser untuk Playwright
+
+Jalankan perintah berikut (pastikan venv masih aktif):
+
+```powershell
+playwright install chromium
+```
+
+4. Install dependency frontend
 
 ```powershell
 npm install --prefix frontend

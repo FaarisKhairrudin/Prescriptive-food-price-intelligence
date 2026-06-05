@@ -499,6 +499,8 @@ class NarapanganHandler(BaseHTTPRequestHandler):
 
             self._send_json(200, payload)
         except Exception as exc:
+            import traceback
+            traceback.print_exc()
             self._send_json(
                 500,
                 {
@@ -537,6 +539,8 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                 print(f"[chat] LLM fallback: {reply['llm_error']}")
             self._send_json(200, reply)
         except Exception as exc:
+            import traceback
+            traceback.print_exc()
             self._send_json(
                 500,
                 {

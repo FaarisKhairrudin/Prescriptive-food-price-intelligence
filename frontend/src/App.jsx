@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, Suspense } from "react";
 import { Outlet, useNavigate } from "react-router-dom";
 import { Sidebar } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
@@ -32,7 +32,9 @@ function App() {
         {isLoading ? (
           <InteractiveLoader />
         ) : (
-          <Outlet />
+          <Suspense fallback={<div className="page-loader"><span>Memuat halaman...</span></div>}>
+            <Outlet />
+          </Suspense>
         )}
       </div>
     </div>

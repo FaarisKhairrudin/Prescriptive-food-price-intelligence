@@ -14,12 +14,7 @@ export function formatSigned(val) {
 }
 
 export function formatCurrency(val) {
-  if (val == null) return "Rp0";
-  return new Intl.NumberFormat("id-ID", {
-    style: "currency",
-    currency: "IDR",
-    maximumFractionDigits: 0,
-  }).format(val);
+  return formatRp(val);
 }
 
 export function formatDate(dateString) {

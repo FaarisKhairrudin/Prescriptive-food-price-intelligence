@@ -1,25 +1,40 @@
-import { StrictMode } from "react";
+import { StrictMode, lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { createBrowserRouter, RouterProvider, Navigate } from "react-router-dom";
 import { AppProvider } from "./context/AppContext";
 
 import App from "./App.jsx";
-import { LandingPage } from "./pages/LandingPage.jsx";
-import { LoginPage } from "./pages/LoginPage.jsx";
-import { OverviewPage } from "./pages/OverviewPage.jsx";
-import { PrediksiPage } from "./pages/PrediksiPage.jsx";
-import { RiwayatPage } from "./pages/RiwayatPage.jsx";
-import { KonsultasiPage } from "./pages/KonsultasiPage.jsx";
-import { PengaturanPage } from "./pages/PengaturanPage.jsx";
+
+const LandingPage = lazy(() => import("./pages/LandingPage.jsx").then(m => ({ default: m.LandingPage })));
+const LoginPage = lazy(() => import("./pages/LoginPage.jsx").then(m => ({ default: m.LoginPage })));
+const OverviewPage = lazy(() => import("./pages/OverviewPage.jsx").then(m => ({ default: m.OverviewPage })));
+const PrediksiPage = lazy(() => import("./pages/PrediksiPage.jsx").then(m => ({ default: m.PrediksiPage })));
+const RiwayatPage = lazy(() => import("./pages/RiwayatPage.jsx").then(m => ({ default: m.RiwayatPage })));
+const KonsultasiPage = lazy(() => import("./pages/KonsultasiPage.jsx").then(m => ({ default: m.KonsultasiPage })));
+const PengaturanPage = lazy(() => import("./pages/PengaturanPage.jsx").then(m => ({ default: m.PengaturanPage })));
+
+const LoadingFallback = () => (
+  <div className="page-loader">
+    <span>Memuat halaman...</span>
+  </div>
+);
 
 const router = createBrowserRouter([
   {
     path: "/",
-    element: <LandingPage />,
+    element: (
+      <Suspense fallback={<LoadingFallback />}>
+        <LandingPage />
+      </Suspense>
+    ),
   },
   {
     path: "/login",
-    element: <LoginPage />,
+    element: (
+      <Suspense fallback={<LoadingFallback />}>
+        <LoginPage />
+      </Suspense>
+    ),
   },
   {
     path: "/dashboard",

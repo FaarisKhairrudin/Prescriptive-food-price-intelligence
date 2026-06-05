@@ -5,11 +5,11 @@ from datetime import timedelta
 try:
     from .pihps import get_pihps_cabai_rawit_bandung
     from .nasa_weather import get_nasa_weather_garut
-    from .hijri_features import generate_hijri_features
+    from .hijri_features import generate_hijri_features as _generate_hijri_features
 except ImportError:
     from pihps import get_pihps_cabai_rawit_bandung
     from nasa_weather import get_nasa_weather_garut
-    from hijri_features import generate_hijri_features
+    from hijri_features import generate_hijri_features as _generate_hijri_features
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -53,23 +53,58 @@ SIGNAL_DOWN_THRESHOLD = -0.05
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# DAILY INGESTION: PIHPS + NASA WEATHER
+# INGESTION CACHING: DAILY & HIJRI DATASETS
 # ─────────────────────────────────────────────────────────────────────────────
+def generate_hijri_features(
+    start_date: str,
+    end_date: str,
+    freq: str = "W-MON"
+) -> pd.DataFrame:
+    """
+    Wrapper generate_hijri_features dengan file caching.
+    """
+    cache_dir = PROJECT_BACKEND_DIR / "data_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = cache_dir / f"hijri_{start_date}_{end_date}_{freq}.csv"
+
+    if cache_file.exists():
+        print(f"[CACHE] Memuat Hijri features dari cache: {cache_file.name}")
+        df = pd.read_csv(cache_file)
+        df["ds"] = pd.to_datetime(df["ds"])
+        return df
+
+    print(f"[Ingestion] Cache miss. Menghitung Hijri features...")
+    df = _generate_hijri_features(start_date, end_date, freq)
+    
+    # Save to cache
+    df.to_csv(cache_file, index=False)
+    print(f"[CACHE] Berhasil menyimpan Hijri features ke cache: {cache_file.name}")
+    return df
+
+
 def build_daily_dataset(
     start_date: str,
     end_date: str,
     headless: bool = True
 ) -> pd.DataFrame:
     """
-    Ambil dan gabungkan:
+    Ambil dan gabungkan dengan daily file caching:
     - Harga Cabai Rawit Merah Kota Bandung dari PIHPS
     - Cuaca Garut dari NASA POWER
-
-    Output harian:
-    Tanggal | Harga | Garut_PRECTOTCORR | Garut_T2M | Garut_RH2M
     """
+    cache_dir = PROJECT_BACKEND_DIR / "data_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = cache_dir / f"daily_{start_date}_{end_date}.csv"
 
-    # 1. PIHPS
+    if cache_file.exists():
+        print(f"[CACHE] Memuat daily dataset gabungan dari cache: {cache_file.name}")
+        df = pd.read_csv(cache_file)
+        df["Tanggal"] = pd.to_datetime(df["Tanggal"])
+        return df
+
+    print(f"[Ingestion] Cache miss. Mengambil data dari PIHPS dan NASA Weather...")
+    
+    # 1. PIHPS Price Data
     df_price = get_pihps_cabai_rawit_bandung(
         start_date=start_date,
         end_date=end_date,
@@ -99,6 +134,10 @@ def build_daily_dataset(
         .sort_values("Tanggal")
         .reset_index(drop=True)
     )
+
+    # Save to cache
+    df_daily.to_csv(cache_file, index=False)
+    print(f"[CACHE] Berhasil menyimpan daily dataset gabungan ke cache: {cache_file.name}")
 
     return df_daily
 
