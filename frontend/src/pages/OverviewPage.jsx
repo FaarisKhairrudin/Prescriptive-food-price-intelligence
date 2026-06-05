@@ -12,13 +12,15 @@ export function OverviewPage() {
   const { payload, profile, isDemoMode, setIsOnboardingOpen } = useAppContext();
   const [timeRange, setTimeRange] = useState("3m");
 
-  if (!payload) return <EmptyState />;
-
-  const { summary, history, forecast } = payload;
-  const chartData = useMemo(() => buildChartData(history, forecast), [history, forecast]);
+  const { summary = {}, history = [], forecast = [] } = payload || {};
+  
+  const chartData = useMemo(() => {
+    if (!payload) return [];
+    return buildChartData(history, forecast);
+  }, [history, forecast, payload]);
 
   const filteredChartData = useMemo(() => {
-    if (!chartData || chartData.length === 0) return [];
+    if (!payload || !chartData || chartData.length === 0) return [];
     const actuals = chartData.filter(d => d.actual !== null && d.forecast === null);
     const bridgeAndForecasts = chartData.filter(d => d.forecast !== null);
     
@@ -30,17 +32,19 @@ export function OverviewPage() {
     
     const slicedActuals = actuals.slice(-sliceCount);
     return [...slicedActuals, ...bridgeAndForecasts];
-  }, [chartData, timeRange]);
+  }, [chartData, timeRange, payload]);
 
-  const actionBadge = summary.signal_code === "stock_early"
+  const actionBadge = summary?.signal_code === "stock_early"
     ? "BELI SEKARANG"
-    : summary.signal_code === "hold_purchase"
+    : summary?.signal_code === "hold_purchase"
       ? "TAHAN"
       : "NORMAL";
 
-  const formattedSavedAt = payload.saved_at
+  const formattedSavedAt = payload?.saved_at
     ? new Date(payload.saved_at).toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' })
     : "";
+
+  if (!payload) return <EmptyState />;
 
   return (
     <div className="page-container">

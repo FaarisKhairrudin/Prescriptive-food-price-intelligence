@@ -18,14 +18,15 @@ export function PrediksiPage() {
   const [simulatedStorage, setSimulatedStorage] = useState(() => parseFloat(profile.storage_capacity_kg) || 10.0);
   const [isSimulating, setIsSimulating] = useState(true);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const { summary = {}, history = [], forecast = [] } = payload || {};
 
-  if (!payload) return <EmptyState />;
-
-  const { summary, history, forecast } = payload;
-  const chartData = useMemo(() => buildChartData(history, forecast), [history, forecast]);
+  const chartData = useMemo(() => {
+    if (!payload) return [];
+    return buildChartData(history, forecast);
+  }, [history, forecast, payload]);
 
   const filteredChartData = useMemo(() => {
-    if (!chartData || chartData.length === 0) return [];
+    if (!payload || !chartData || chartData.length === 0) return [];
     const actuals = chartData.filter(d => d.actual !== null && d.forecast === null);
     const bridgeAndForecasts = chartData.filter(d => d.forecast !== null);
     
@@ -37,12 +38,14 @@ export function PrediksiPage() {
     
     const slicedActuals = actuals.slice(-sliceCount);
     return [...slicedActuals, ...bridgeAndForecasts];
-  }, [chartData, timeRange]);
+  }, [chartData, timeRange, payload]);
 
-  const peak = useMemo(
-    () => forecast.reduce((a, b) => a.predicted_price > b.predicted_price ? a : b),
-    [forecast]
-  );
+  const peak = useMemo(() => {
+    if (!payload || !forecast || forecast.length === 0) return null;
+    return forecast.reduce((a, b) => a.predicted_price > b.predicted_price ? a : b);
+  }, [forecast, payload]);
+
+  if (!payload) return <EmptyState />;
 
   async function handleApplyToProfile() {
     const ok = await saveProfile({
