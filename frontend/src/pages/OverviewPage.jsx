@@ -1,5 +1,5 @@
 import { Calendar, ArrowUpRight, ArrowDownRight } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import { formatRp, formatSigned, formatDate, formatCurrency, buildChartData } from "../utils/helpers";
 import { CHART_COLORS } from "../utils/constants";
@@ -9,11 +9,27 @@ import { ForecastCard } from "../components/ForecastCard";
 
 export function OverviewPage() {
   const { payload, profile } = useAppContext();
+  const [timeRange, setTimeRange] = useState("3m");
 
   if (!payload) return <EmptyState />;
 
   const { summary, history, forecast } = payload;
   const chartData = useMemo(() => buildChartData(history, forecast), [history, forecast]);
+
+  const filteredChartData = useMemo(() => {
+    if (!chartData || chartData.length === 0) return [];
+    const actuals = chartData.filter(d => d.actual !== null && d.forecast === null);
+    const bridgeAndForecasts = chartData.filter(d => d.forecast !== null);
+    
+    let sliceCount = 12;
+    if (timeRange === "1m") sliceCount = 4;
+    if (timeRange === "3m") sliceCount = 12;
+    if (timeRange === "6m") sliceCount = 26;
+    if (timeRange === "1y") sliceCount = 52;
+    
+    const slicedActuals = actuals.slice(-sliceCount);
+    return [...slicedActuals, ...bridgeAndForecasts];
+  }, [chartData, timeRange]);
 
   const actionBadge = summary.signal_code === "stock_early"
     ? "BELI SEKARANG"
@@ -83,15 +99,28 @@ export function OverviewPage() {
           <div className="chart-header">
             <div>
               <h3 className="chart-title">Pergerakan Harga Bandung</h3>
-              <p className="chart-subtitle">Pasar Bandung · Historis + Prediksi 4 minggu</p>
+              <p className="chart-subtitle">Pasar Caringin · Historis + Prediksi 4 minggu</p>
             </div>
-            <div className="chart-legend">
-              <span className="legend-item"><span className="legend-dot actual"></span>Historis</span>
-              <span className="legend-item"><span className="legend-dot forecast"></span>Prediksi</span>
+            <div className="chart-controls-legend-wrapper">
+              <div className="chart-controls">
+                {["1m", "3m", "6m", "1y"].map((range) => (
+                  <button
+                    key={range}
+                    className={`chart-filter-btn ${timeRange === range ? "active" : ""}`}
+                    onClick={() => setTimeRange(range)}
+                  >
+                    {range === "1m" ? "1B" : range === "3m" ? "3B" : range === "6m" ? "6B" : "1T"}
+                  </button>
+                ))}
+              </div>
+              <div className="chart-legend">
+                <span className="legend-item"><span className="legend-dot actual"></span>Historis</span>
+                <span className="legend-item"><span className="legend-dot forecast"></span>Prediksi</span>
+              </div>
             </div>
           </div>
           <ResponsiveContainer width="100%" height={280}>
-            <ComposedChart data={chartData} margin={{ top: 18, right: 16, left: 0, bottom: 8 }}>
+            <ComposedChart data={filteredChartData} margin={{ top: 18, right: 16, left: 0, bottom: 8 }}>
               <CartesianGrid stroke={CHART_COLORS.grid} strokeDasharray="4 4" vertical={false} />
               <XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={16} />
               <YAxis

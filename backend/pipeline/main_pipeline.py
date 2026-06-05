@@ -688,7 +688,7 @@ def build_prediction_report(
     history_df = (
         train_df
         .sort_values("ds")
-        .tail(12)
+        .tail(52)
         .reset_index(drop=True)
         .rename(columns={"y": "actual_price"})
     )
