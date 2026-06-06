@@ -20,7 +20,7 @@ from backend.pipeline.main_pipeline import (
     save_payload_to_cache,
     reconstruct_web_payload_from_db
 )
-from backend.database import get_connection, create_pipeline_run, update_pipeline_stage, complete_pipeline_run
+from backend.database import get_connection, create_pipeline_run, update_pipeline_stage, complete_pipeline_run, DATABASE_PATH
 from backend.api.auth import verify_password, create_token, verify_token
 
 
@@ -1666,6 +1666,13 @@ def run_scheduler_loop():
 
 
 def run_server(host: str = HOST, port: int = PORT):
+    # Initialize/migrate database first
+    from backend.database import init_db
+    try:
+        init_db()
+    except Exception as db_e:
+        print(f"[SERVER-STARTUP] Database initialization failed: {db_e}")
+
     # Spawn background scheduler loop
     import threading
     scheduler_thread = threading.Thread(target=run_scheduler_loop, daemon=True)
