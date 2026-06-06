@@ -54,7 +54,7 @@ export function ForecastCard({ row, index, showAction = false, dailyUsage, stora
         <div className={`fi-action ${actionCls}`}>
           {actionText} {purchaseQty != null && (
             actionCls === "simpan"
-              ? `(Beli Minimum ${purchaseQty.toFixed(1)} Kg)`
+              ? `(Beli Min ${purchaseQty.toFixed(1)} Kg)`
               : `(${purchaseQty.toFixed(1)} Kg)`
           )}
         </div>

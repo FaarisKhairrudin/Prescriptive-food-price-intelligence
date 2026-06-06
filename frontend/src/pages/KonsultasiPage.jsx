@@ -6,7 +6,8 @@ import { formatDate } from "../utils/helpers";
 import { useAppContext } from "../context/AppContext";
 
 export function KonsultasiPage() {
-  const { payload, profile, token } = useAppContext();
+  const { payload, profile, token, user } = useAppContext();
+  const userName = profile?.business_type || (user?.email ? user.email.split("@")[0] : "Pemilik Usaha");
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState([]);
   const [status, setStatus] = useState("idle");
@@ -98,7 +99,7 @@ export function KonsultasiPage() {
 
   const summary = payload?.summary;
   const greeting = summary
-    ? `Selamat siang, [User]. Berdasarkan prediksi minggu ini, harga cabai rawit merah di Bandung diperkirakan ${summary.pct_change_avg >= 0 ? "naik" : "turun"} ${Math.abs(summary.pct_change_avg).toFixed(1)}% pekan depan. Ada yang ingin Anda diskusikan?`
+    ? `Selamat siang, ${userName}. Berdasarkan prediksi minggu ini, harga cabai rawit merah di Bandung diperkirakan ${summary.pct_change_avg >= 0 ? "naik" : "turun"} ${Math.abs(summary.pct_change_avg).toFixed(1)}% pekan depan. Ada yang ingin Anda diskusikan?`
     : "Selamat siang! Jalankan prediksi terlebih dahulu agar saya bisa memberikan saran yang lebih akurat.";
 
   function formatTimeAgo(ts) {
