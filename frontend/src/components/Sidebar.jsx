@@ -1,10 +1,12 @@
-import { LayoutDashboard, TrendingUp, History, MessageSquare, Settings, AlertCircle, TriangleAlert, ChevronRight } from "lucide-react";
+import { useState } from "react";
+import { LayoutDashboard, TrendingUp, History, MessageSquare, Settings, AlertCircle, TriangleAlert, ChevronRight, LogOut } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { useAppContext } from "../context/AppContext";
 
 export function Sidebar() {
   const { pathname } = useLocation();
   const { payload, profile, logout, user } = useAppContext();
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   const getAlert = () => {
     if (!payload?.summary) return null;
@@ -65,7 +67,7 @@ export function Sidebar() {
         </div>
       )}
 
-      <button className="sidebar-user" onClick={logout} title="Klik untuk keluar">
+      <button className="sidebar-user" onClick={() => setShowLogoutConfirm(true)} title="Klik untuk keluar">
         <div className="sidebar-avatar">{profile.business_type ? profile.business_type[0].toUpperCase() : "U"}</div>
         <div className="sidebar-user-info">
           <div className="sidebar-user-name" title={user?.email || "Pengguna"}>{user?.email || "Pengguna"}</div>
@@ -74,6 +76,28 @@ export function Sidebar() {
           </div>
         </div>
       </button>
+
+      {showLogoutConfirm && (
+        <div className="confirm-overlay" onClick={() => setShowLogoutConfirm(false)}>
+          <div className="confirm-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="confirm-icon-wrapper">
+              <LogOut size={28} />
+            </div>
+            <h3 className="confirm-title">Konfirmasi Keluar</h3>
+            <p className="confirm-text">
+              Apakah Anda yakin ingin keluar dari Narapangan? Sesi Anda akan diakhiri.
+            </p>
+            <div className="confirm-buttons">
+              <button className="confirm-btn confirm-btn-cancel" onClick={() => setShowLogoutConfirm(false)}>
+                Batal
+              </button>
+              <button className="confirm-btn confirm-btn-danger" onClick={logout}>
+                Keluar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }

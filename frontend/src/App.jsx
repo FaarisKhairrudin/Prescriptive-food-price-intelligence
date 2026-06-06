@@ -28,7 +28,7 @@ function App() {
         
         {error && <div className="error-banner"><AlertTriangle size={16} /><span>{error}</span></div>}
         
-        {isLoading ? (
+        {isLoading && !payload ? (
           <InteractiveLoader />
         ) : (
           <Suspense fallback={<div className="page-loader"><span>Memuat halaman...</span></div>}>

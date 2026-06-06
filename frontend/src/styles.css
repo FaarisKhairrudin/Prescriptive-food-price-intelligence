@@ -2961,3 +2961,106 @@ h1, h2, h3, p {
 .demo-mode-btn:hover {
   background: #b45309;
 }
+
+/* ===== Confirm Dialog ===== */
+.confirm-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(26, 46, 31, 0.7);
+  backdrop-filter: blur(4px);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: confirmFadeIn 200ms ease-out;
+}
+
+.confirm-modal {
+  background: var(--card);
+  width: 400px;
+  max-width: 90vw;
+  border-radius: 16px;
+  padding: 32px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  animation: confirmScaleUp 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  border: 1px solid var(--card-border);
+}
+
+.confirm-icon-wrapper {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #fdf2f2;
+  color: var(--live-red);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+.confirm-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 0 0 10px 0;
+}
+
+.confirm-text {
+  font-size: 14px;
+  color: var(--body);
+  line-height: 1.5;
+  margin: 0 0 24px 0;
+}
+
+.confirm-buttons {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+}
+
+.confirm-btn {
+  flex: 1;
+  padding: 12px 20px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 14px;
+  border: none;
+  cursor: pointer;
+  transition: background 150ms, transform 100ms;
+}
+
+.confirm-btn:active {
+  transform: scale(0.98);
+}
+
+.confirm-btn-cancel {
+  background: var(--tag-normal-bg);
+  color: var(--ink);
+}
+
+.confirm-btn-cancel:hover {
+  background: #dadfda;
+}
+
+.confirm-btn-danger {
+  background: var(--live-red);
+  color: white;
+}
+
+.confirm-btn-danger:hover {
+  background: #c02d3c;
+}
+
+@keyframes confirmFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes confirmScaleUp {
+  from { transform: scale(0.95); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
