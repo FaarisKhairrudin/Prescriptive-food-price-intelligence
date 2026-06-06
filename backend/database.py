@@ -24,6 +24,8 @@ def init_db():
             email TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
             is_admin INTEGER DEFAULT 0,
+            is_blocked INTEGER DEFAULT 0,
+            deleted_at TEXT DEFAULT NULL,
             business_type TEXT,
             daily_usage_kg REAL,
             stock_days INTEGER,
@@ -105,6 +107,47 @@ def init_db():
             timestamp INTEGER NOT NULL
         );
     """)
+
+    # 8. Pipeline Runs Table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pipeline_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_date TEXT NOT NULL,
+            trigger_type TEXT NOT NULL,
+            start_time TEXT NOT NULL,
+            end_time TEXT,
+            duration_seconds REAL,
+            status TEXT NOT NULL,
+            stage_scraping TEXT NOT NULL,
+            stage_weather TEXT NOT NULL,
+            stage_feat_eng TEXT NOT NULL,
+            stage_forecast TEXT NOT NULL,
+            stage_payload TEXT NOT NULL,
+            stage_cache TEXT NOT NULL,
+            error_message TEXT
+        );
+    """)
+
+    # 9. Audit Logs Table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            admin_id INTEGER NOT NULL,
+            action TEXT NOT NULL,
+            target TEXT,
+            timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+            details TEXT,
+            FOREIGN KEY(admin_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+    """)
+
+    # Run migrations for existing users table if columns don't exist on disk
+    for col, definition in [("is_blocked", "INTEGER DEFAULT 0"), ("deleted_at", "TEXT DEFAULT NULL")]:
+        try:
+            cursor.execute(f"SELECT {col} FROM users LIMIT 1")
+        except sqlite3.OperationalError:
+            print(f"[database] Migrating database: adding '{col}' column to 'users'")
+            cursor.execute(f"ALTER TABLE users ADD COLUMN {col} {definition}")
 
     # Create default admin user if none exists
     cursor.execute("SELECT COUNT(*) FROM users WHERE email = 'admin@narapangan.com'")

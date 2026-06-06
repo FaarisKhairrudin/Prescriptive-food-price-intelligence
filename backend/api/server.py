@@ -472,6 +472,17 @@ class NarapanganHandler(BaseHTTPRequestHandler):
         token = auth_header.split(" ")[1]
         return verify_token(token)
 
+    def _authenticate_admin(self) -> dict | None:
+        """Authenticates the user and verifies they have administrative privileges."""
+        user_data = self._authenticate()
+        if not user_data:
+            self._send_json(401, {"error": "Sesi kedaluwarsa atau tidak sah. Silakan login kembali."})
+            return None
+        if not user_data.get("is_admin"):
+            self._send_json(403, {"error": "Akses ditolak. Endpoint ini hanya untuk administrator."})
+            return None
+        return user_data
+
     def do_OPTIONS(self):
         self._send_json(200, {"ok": True})
 
@@ -564,6 +575,248 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                 self._send_json(500, {"error": "Gagal mengambil riwayat chat.", "detail": str(e)})
             return
 
+        if path == "/api/admin/system-status":
+            admin_data = self._authenticate_admin()
+            if not admin_data:
+                return
+
+            try:
+                conn = get_connection()
+                cursor = conn.cursor()
+                
+                # 1. Total users
+                cursor.execute("SELECT COUNT(*) FROM users")
+                total_users = cursor.fetchone()[0]
+                
+                # 2. Active users (not blocked and not deleted)
+                cursor.execute("SELECT COUNT(*) FROM users WHERE is_blocked = 0 AND deleted_at IS NULL AND is_admin = 0")
+                active_users = cursor.fetchone()[0]
+                
+                # 3. Blocked users
+                cursor.execute("SELECT COUNT(*) FROM users WHERE is_blocked = 1 AND deleted_at IS NULL")
+                blocked_users = cursor.fetchone()[0]
+                
+                # 4. Deleted users
+                cursor.execute("SELECT COUNT(*) FROM users WHERE deleted_at IS NOT NULL")
+                deleted_users = cursor.fetchone()[0]
+                
+                # 5. Price records
+                cursor.execute("SELECT COUNT(*) FROM prices")
+                price_records = cursor.fetchone()[0]
+                
+                # 6. Weather records
+                cursor.execute("SELECT COUNT(*) FROM weather")
+                weather_records = cursor.fetchone()[0]
+                
+                # 7. Forecast records
+                cursor.execute("SELECT COUNT(*) FROM forecasts")
+                forecast_records = cursor.fetchone()[0]
+                
+                # 8. Latest crawl date
+                cursor.execute("SELECT MAX(run_date) FROM crawls")
+                latest_crawl_date = cursor.fetchone()[0] or "Belum ada"
+                
+                # 9. Latest forecast date
+                cursor.execute("SELECT MAX(forecast_date) FROM forecasts")
+                latest_forecast_date = cursor.fetchone()[0] or "Belum ada"
+
+                # 10. Latest weather date
+                cursor.execute("SELECT MAX(date) FROM weather")
+                latest_weather_date = cursor.fetchone()[0] or "Belum ada"
+
+                conn.close()
+
+                # Health Indicators (Simple logic)
+                import os
+                cache_exists = os.path.exists(str(DATABASE_PATH.parent / "data_cache" / "latest_payload.json"))
+                
+                forecast_health = {"status": "healthy", "message": "Proyeksi terisi"}
+                pipeline_health = {"status": "healthy", "message": "Pipeline siap"}
+                cache_health = {"status": "healthy", "message": "latest_payload.json valid" if cache_exists else "Cache kosong"}
+
+                if latest_forecast_date == "Belum ada":
+                    forecast_health = {"status": "critical", "message": "Belum ada data peramalan"}
+                
+                if not cache_exists:
+                    cache_health = {"status": "warning", "message": "Cache file tidak ditemukan"}
+
+                self._send_json(200, {
+                    "stats": {
+                        "total_users": total_users,
+                        "active_users": active_users,
+                        "blocked_users": blocked_users,
+                        "deleted_users": deleted_users,
+                        "price_records": price_records,
+                        "weather_records": weather_records,
+                        "forecast_records": forecast_records,
+                        "latest_crawl_date": latest_crawl_date,
+                        "latest_forecast_date": latest_forecast_date,
+                        "latest_weather_date": latest_weather_date
+                    },
+                    "health": {
+                        "forecast_data": forecast_health,
+                        "pipeline": pipeline_health,
+                        "cache_layer": cache_health
+                    }
+                })
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                self._send_json(500, {"error": "Gagal mengambil status sistem.", "detail": str(e)})
+            return
+
+        if path == "/api/admin/users":
+            admin_data = self._authenticate_admin()
+            if not admin_data:
+                return
+
+            try:
+                conn = get_connection()
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT id, email, is_admin, is_blocked, deleted_at, business_type, 
+                           daily_usage_kg, stock_days, storage_capacity_kg, buying_style, can_adjust_price, created_at 
+                    FROM users 
+                    ORDER BY id ASC
+                """)
+                rows = cursor.fetchall()
+                conn.close()
+
+                users_list = []
+                for row in rows:
+                    users_list.append({
+                        "id": row["id"],
+                        "email": row["email"],
+                        "is_admin": bool(row["is_admin"]),
+                        "is_blocked": bool(row["is_blocked"]),
+                        "deleted_at": row["deleted_at"],
+                        "created_at": row["created_at"],
+                        "business_type": row["business_type"] or "",
+                        "profile": {
+                            "daily_usage_kg": row["daily_usage_kg"] if row["daily_usage_kg"] is not None else "",
+                            "stock_days": row["stock_days"] if row["stock_days"] is not None else "",
+                            "storage_capacity_kg": row["storage_capacity_kg"] if row["storage_capacity_kg"] is not None else "",
+                            "buying_style": row["buying_style"] or "Aman stok",
+                            "can_adjust_price": row["can_adjust_price"] or "Sulit naik harga"
+                        }
+                    })
+
+                self._send_json(200, {"users": users_list})
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                self._send_json(500, {"error": "Gagal mengambil daftar pengguna.", "detail": str(e)})
+            return
+
+        if path == "/api/admin/data-health":
+            admin_data = self._authenticate_admin()
+            if not admin_data:
+                return
+
+            try:
+                conn = get_connection()
+                cursor = conn.cursor()
+                
+                # Commodity Data info
+                cursor.execute("SELECT MAX(date), COUNT(*) FROM prices WHERE commodity = 'cabai-rawit-merah'")
+                row_comm = cursor.fetchone()
+                latest_price_date = row_comm[0] or "Belum ada"
+                price_count = row_comm[1]
+                
+                # Weather Data info
+                cursor.execute("SELECT MAX(date), COUNT(*) FROM weather")
+                row_weath = cursor.fetchone()
+                latest_weather_date = row_weath[0] or "Belum ada"
+                weather_count = row_weath[1]
+                
+                # Forecast info
+                cursor.execute("SELECT MAX(forecast_date), COUNT(DISTINCT forecast_date) FROM forecasts")
+                row_fore = cursor.fetchone()
+                latest_forecast_date = row_fore[0] or "Belum ada"
+                forecast_count = row_fore[1]
+                
+                conn.close()
+
+                import os
+                cache_payload_path = DATABASE_PATH.parent / "data_cache" / "latest_payload.json"
+                cache_exists = os.path.exists(str(cache_payload_path))
+                cache_valid = False
+                cache_age = 0
+                if cache_exists:
+                    cache_valid = True
+                    import time
+                    cache_age = int(time.time() - os.path.getmtime(str(cache_payload_path)))
+
+                warnings = []
+                
+                comm_status = "healthy"
+                if latest_price_date != "Belum ada":
+                    try:
+                        latest_price_ts = datetime.strptime(latest_price_date, "%Y-%m-%d")
+                        diff_days = (datetime.now() - latest_price_ts).days
+                        if diff_days > 7:
+                            comm_status = "warning"
+                            warnings.append(f"Komoditas: Data harga cabai sudah {diff_days} hari tidak terisi.")
+                    except ValueError:
+                        pass
+                else:
+                    comm_status = "warning"
+                    warnings.append("Komoditas: Data harga cabai belum di-crawl.")
+
+                weather_status = "healthy"
+                if latest_weather_date != "Belum ada":
+                    try:
+                        latest_weather_ts = datetime.strptime(latest_weather_date, "%Y-%m-%d")
+                        diff_days = (datetime.now() - latest_weather_ts).days
+                        if diff_days > 10:
+                            weather_status = "warning"
+                            warnings.append(f"Cuaca: Data cuaca Garut sudah {diff_days} hari tidak terisi.")
+                    except ValueError:
+                        pass
+                else:
+                    weather_status = "warning"
+                    warnings.append("Cuaca: Data cuaca Garut belum di-crawl.")
+
+                forecast_status = "healthy"
+                if latest_forecast_date == "Belum ada":
+                    forecast_status = "critical"
+                    warnings.append("Peramalan: Model belum dijalankan.")
+
+                cache_status = "healthy"
+                if not cache_exists:
+                    cache_status = "warning"
+                    warnings.append("Cache Layer: File latest_payload.json belum dibuat.")
+
+                self._send_json(200, {
+                    "commodity": {
+                        "latest_price_date": latest_price_date,
+                        "record_count": price_count,
+                        "status": comm_status
+                    },
+                    "weather": {
+                        "latest_weather_date": latest_weather_date,
+                        "record_count": weather_count,
+                        "status": weather_status
+                    },
+                    "forecast": {
+                        "latest_forecast_date": latest_forecast_date,
+                        "available_forecasts": forecast_count,
+                        "status": forecast_status
+                    },
+                    "cache": {
+                        "exists": cache_exists,
+                        "age_seconds": cache_age,
+                        "valid": cache_valid,
+                        "status": cache_status
+                    },
+                    "warnings": warnings
+                })
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                self._send_json(500, {"error": "Gagal mengambil laporan data health.", "detail": str(e)})
+            return
+
         self._send_json(404, {"error": "Endpoint tidak ditemukan."})
 
     def do_POST(self):
@@ -583,7 +836,7 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                 conn = get_connection()
                 cursor = conn.cursor()
                 cursor.execute(
-                    "SELECT id, email, password_hash, is_admin, business_type, daily_usage_kg, stock_days, storage_capacity_kg, buying_style, can_adjust_price FROM users WHERE email = ?",
+                    "SELECT id, email, password_hash, is_admin, is_blocked, deleted_at, business_type, daily_usage_kg, stock_days, storage_capacity_kg, buying_style, can_adjust_price FROM users WHERE email = ?",
                     (email,)
                 )
                 row = cursor.fetchone()
@@ -591,6 +844,14 @@ class NarapanganHandler(BaseHTTPRequestHandler):
 
                 if not row or not verify_password(password, row["password_hash"]):
                     self._send_json(401, {"error": "Email atau password salah."})
+                    return
+
+                if row["deleted_at"] is not None:
+                    self._send_json(403, {"error": "Akun Anda telah dinonaktifkan."})
+                    return
+
+                if bool(row["is_blocked"]):
+                    self._send_json(403, {"error": "Akun Anda telah dinonaktifkan oleh administrator."})
                     return
 
                 user_payload = {
@@ -688,7 +949,7 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                 conn = get_connection()
                 cursor = conn.cursor()
                 cursor.execute(
-                    "SELECT id, email, is_admin, business_type, daily_usage_kg, stock_days, storage_capacity_kg, buying_style, can_adjust_price FROM users WHERE email = ?",
+                    "SELECT id, email, is_admin, is_blocked, deleted_at, business_type, daily_usage_kg, stock_days, storage_capacity_kg, buying_style, can_adjust_price FROM users WHERE email = ?",
                     (email,)
                 )
                 row = cursor.fetchone()
@@ -712,6 +973,15 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                     }
                     is_admin = False
                 else:
+                    if row["deleted_at"] is not None:
+                        conn.close()
+                        self._send_json(403, {"error": "Akun Anda telah dinonaktifkan."})
+                        return
+                    if bool(row["is_blocked"]):
+                        conn.close()
+                        self._send_json(403, {"error": "Akun Anda telah dinonaktifkan oleh administrator."})
+                        return
+                        
                     user_id = row["id"]
                     is_admin = bool(row["is_admin"])
                     profile = {
@@ -797,6 +1067,100 @@ class NarapanganHandler(BaseHTTPRequestHandler):
 
         if path == "/api/chat/delete":
             self._handle_chat_delete(user_data)
+            return
+
+        if path == "/api/admin/users/block":
+            admin_data = self._authenticate_admin()
+            if not admin_data:
+                return
+
+            try:
+                body = self._read_json()
+                target_user_id = body.get("user_id")
+                block_flag = body.get("block")
+
+                if target_user_id is None or block_flag is None:
+                    self._send_json(400, {"error": "user_id dan block wajib diisi."})
+                    return
+
+                conn = get_connection()
+                cursor = conn.cursor()
+                if int(target_user_id) == admin_data["user_id"]:
+                    conn.close()
+                    self._send_json(400, {"error": "Anda tidak dapat memblokir akun Anda sendiri."})
+                    return
+
+                cursor.execute("SELECT email FROM users WHERE id = ?", (target_user_id,))
+                user_row = cursor.fetchone()
+                if not user_row:
+                    conn.close()
+                    self._send_json(404, {"error": "Pengguna tidak ditemukan."})
+                    return
+
+                cursor.execute("UPDATE users SET is_blocked = ? WHERE id = ?", (1 if block_flag else 0, target_user_id))
+                
+                # Write to audit logs
+                action_str = "block_user" if block_flag else "unblock_user"
+                cursor.execute("""
+                    INSERT INTO audit_logs (admin_id, action, target, details)
+                    VALUES (?, ?, ?, ?)
+                """, (admin_data["user_id"], action_str, f"user_id={target_user_id}", f"Admin updated block status of {user_row['email']} to {block_flag}"))
+                
+                conn.commit()
+                conn.close()
+
+                self._send_json(200, {"success": True, "message": f"Pengguna {user_row['email']} berhasil {'diblokir' if block_flag else 'diaktifkan'}."})
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                self._send_json(500, {"error": "Gagal memperbarui status blokir.", "detail": str(e)})
+            return
+
+        if path == "/api/admin/users/delete":
+            admin_data = self._authenticate_admin()
+            if not admin_data:
+                return
+
+            try:
+                body = self._read_json()
+                target_user_id = body.get("user_id")
+
+                if target_user_id is None:
+                    self._send_json(400, {"error": "user_id wajib diisi."})
+                    return
+
+                conn = get_connection()
+                cursor = conn.cursor()
+                if int(target_user_id) == admin_data["user_id"]:
+                    conn.close()
+                    self._send_json(400, {"error": "Anda tidak dapat menghapus akun Anda sendiri."})
+                    return
+
+                cursor.execute("SELECT email FROM users WHERE id = ?", (target_user_id,))
+                user_row = cursor.fetchone()
+                if not user_row:
+                    conn.close()
+                    self._send_json(404, {"error": "Pengguna tidak ditemukan."})
+                    return
+
+                # Perform soft-delete: set deleted_at
+                now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                cursor.execute("UPDATE users SET deleted_at = ? WHERE id = ?", (now_str, target_user_id))
+                
+                # Write to audit logs
+                cursor.execute("""
+                    INSERT INTO audit_logs (admin_id, action, target, details)
+                    VALUES (?, ?, ?, ?)
+                """, (admin_data["user_id"], "soft_delete_user", f"user_id={target_user_id}", f"Admin soft-deleted user {user_row['email']}"))
+                
+                conn.commit()
+                conn.close()
+
+                self._send_json(200, {"success": True, "message": f"Pengguna {user_row['email']} berhasil dinonaktifkan (soft-delete)."})
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                self._send_json(500, {"error": "Gagal menonaktifkan pengguna.", "detail": str(e)})
             return
 
         self._send_json(404, {"error": "Endpoint tidak ditemukan."})
