@@ -1,14 +1,35 @@
-import { formatRp, formatSigned, getStockAction } from "../utils/helpers";
-import { ArrowUpRight, ArrowDownRight } from "lucide-react";
+import { formatRp, formatSigned } from "../utils/helpers";
+import { useAppContext } from "../context/AppContext";
 
-export function ForecastCard({ row, index, showAction = false, customAction = null }) {
+export function ForecastCard({ row, index, showAction = false, dailyUsage, storageCapacity }) {
+  const { profile, isDemoMode } = useAppContext();
   const isUp = row.change_from_last_pct >= 0;
   
   // Parse date to get just the day (e.g., "26")
   const dateObj = new Date(row.ds);
   const day = dateObj.getDate().toString().padStart(2, '0');
 
-  const action = customAction || getStockAction(row.change_from_last_pct);
+  const activeUsage = dailyUsage !== undefined ? dailyUsage : (parseFloat(profile.daily_usage_kg) || 2.0);
+  const activeStorage = storageCapacity !== undefined ? storageCapacity : (parseFloat(profile.storage_capacity_kg) || 10.0);
+
+  const pct = row.change_from_last_pct;
+  let actionText = "Pantau";
+  let actionCls = "pantau";
+  let purchaseQty = 0;
+
+  if (pct > 2.0) {
+    actionText = isDemoMode ? "Demo (Beli)" : "Beli";
+    actionCls = "beli";
+    purchaseQty = Math.min(activeStorage, activeUsage * 14);
+  } else if (pct < -2.0) {
+    actionText = isDemoMode ? "Demo (Tahan)" : "Tahan";
+    actionCls = "simpan";
+    purchaseQty = activeUsage * 3.5;
+  } else {
+    actionText = isDemoMode ? "Demo (Pantau)" : "Pantau";
+    actionCls = "pantau";
+    purchaseQty = Math.min(activeStorage, activeUsage * 7);
+  }
 
   let tagText = "Normal";
   let tagClass = "normal";
@@ -30,8 +51,12 @@ export function ForecastCard({ row, index, showAction = false, customAction = nu
         {isUp ? "↗" : "↘"} {formatSigned(row.change_from_last_pct)}
       </div>
       {showAction && (
-        <div className={`fi-action ${action.cls}`}>
-          {action.text} {action.volume != null && `(${action.volume.toFixed(1)} Kg)`}
+        <div className={`fi-action ${actionCls}`}>
+          {actionText} {purchaseQty != null && (
+            actionCls === "simpan"
+              ? `(Beli Minimum ${purchaseQty.toFixed(1)} Kg)`
+              : `(${purchaseQty.toFixed(1)} Kg)`
+          )}
         </div>
       )}
     </div>

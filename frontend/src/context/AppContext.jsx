@@ -252,7 +252,7 @@ export function AppProvider({ children }) {
     }
   }
 
-  async function pollPredictions(attempt = 1) {
+  async function pollPredictions(attempt = 1, simProps = null) {
     if (!token) return;
     try {
       console.log(`[AppContext] Polling predictions, attempt ${attempt}...`);
@@ -261,14 +261,15 @@ export function AppProvider({ children }) {
         headers: { 
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
-        }
+        },
+        body: JSON.stringify(simProps || {})
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || data.error || "Gagal mengambil data prediksi.");
       
       if (data.status === "generating") {
         if (attempt < 20) {
-          setTimeout(() => pollPredictions(attempt + 1), 3000);
+          setTimeout(() => pollPredictions(attempt + 1, simProps), 3000);
         } else {
           throw new Error("Waktu tunggu habis. Silakan refresh halaman.");
         }
@@ -277,7 +278,9 @@ export function AppProvider({ children }) {
       
       const enriched = { ...data, saved_at: new Date().toISOString() };
       setPayload(enriched);
-      writeStored(PAYLOAD_KEY, enriched);
+      if (!simProps) {
+        writeStored(PAYLOAD_KEY, enriched);
+      }
       setStatus("done");
     } catch (err) {
       setError(err.message);
@@ -285,9 +288,10 @@ export function AppProvider({ children }) {
     }
   }
 
-  async function runPrediction() {
+  async function runPrediction(simProps = null) {
     if (!token) return;
-    setStatus("loading");
+    const isSimUpdate = !!simProps;
+    if (!isSimUpdate) setStatus("loading");
     setError("");
     try {
       const res = await fetch("/api/predict", {
@@ -295,20 +299,23 @@ export function AppProvider({ children }) {
         headers: { 
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
-        }
+        },
+        body: JSON.stringify(simProps || {})
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || data.error || "Pipeline gagal.");
       
       if (data.status === "generating") {
         console.log("[AppContext] Forecast is generating. Starting background poll...");
-        pollPredictions(1);
+        pollPredictions(1, simProps);
         return;
       }
 
       const enriched = { ...data, saved_at: new Date().toISOString() };
       setPayload(enriched);
-      writeStored(PAYLOAD_KEY, enriched);
+      if (!isSimUpdate) {
+        writeStored(PAYLOAD_KEY, enriched);
+      }
       setStatus("done");
     } catch (err) {
       setError(err.message);

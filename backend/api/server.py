@@ -777,6 +777,14 @@ class NarapanganHandler(BaseHTTPRequestHandler):
             else:
                 business_profile = {}
 
+            # Support simulated overrides for on-the-fly AI explanation updates
+            sim_usage = request_body.get("simulated_usage")
+            sim_storage = request_body.get("simulated_storage")
+            if sim_usage is not None:
+                business_profile["daily_usage_kg"] = str(sim_usage)
+            if sim_storage is not None:
+                business_profile["storage_capacity_kg"] = str(sim_storage)
+
             # 1. Try loading from cache file
             payload = load_payload_from_cache()
             

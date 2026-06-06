@@ -56,7 +56,7 @@ export function OverviewPage() {
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           <span className="context-badge">
             <span className="context-badge-dot"></span>
-            Profil: {isDemoMode ? "Mode Demo" : (profile.business_type || "Umum")} · {isDemoMode ? "2.0 Kg/Hari" : `${profile.daily_usage_kg || 0} Kg/Hari`}
+            Profil: {isDemoMode ? "Mode Demo" : (profile.business_type || "Umum")} · {isDemoMode ? "2.0" : (profile.daily_usage_kg || 0)} Kg/Hari · {isDemoMode ? "10" : (profile.storage_capacity_kg || 0)} Kg Simpan · Gaya: {profile.buying_style || "Aman stok"}
           </span>
           {formattedSavedAt && (
             <span style={{ fontSize: "12px", color: "var(--muted)" }}>
@@ -248,8 +248,11 @@ export function OverviewPage() {
           </div>
           <div className="forecast-list">
             {forecast.map((row, i) => (
-              <ForecastCard key={row.ds} row={row} index={i} />
+              <ForecastCard key={row.ds} row={row} index={i} showAction={true} />
             ))}
+          </div>
+          <div className="forecast-explanation-footer" style={{ marginTop: "12px", fontSize: "11px", color: "var(--muted)", lineHeight: "1.4" }}>
+            * Asumsi volume pengadaan: <strong>Beli</strong> = 14 hari pemakaian (maks kapasitas simpan), <strong>Pantau</strong> = 7 hari pemakaian (maks kapasitas simpan), <strong>Tahan</strong> = 3.5 hari pemakaian (Beli Minimum / Safety Stock).
           </div>
         </div>
       </div>
