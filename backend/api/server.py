@@ -796,7 +796,7 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                 cursor = conn.cursor()
                 
                 # Commodity Data info
-                cursor.execute("SELECT MAX(date), COUNT(*) FROM prices WHERE commodity = 'cabai-rawit-merah'")
+                cursor.execute("SELECT MAX(date), COUNT(*) FROM prices WHERE commodity = 'Cabai Rawit Merah'")
                 row_comm = cursor.fetchone()
                 latest_price_date = row_comm[0] or "Belum ada"
                 price_count = row_comm[1]

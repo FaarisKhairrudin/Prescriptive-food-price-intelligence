@@ -343,8 +343,8 @@ export function AdminSystemPage() {
         .pipeline-run-btn {
           width: 100%;
           padding: 12px;
-          background: var(--primary);
-          color: white;
+          background: var(--lime);
+          color: var(--ink);
           border: none;
           border-radius: 10px;
           font-weight: 700;
@@ -357,7 +357,7 @@ export function AdminSystemPage() {
           transition: all 0.2s ease;
         }
         .pipeline-run-btn:hover:not(:disabled) {
-          background: var(--primary-dark);
+          background: var(--lime-hover);
         }
         .pipeline-run-btn:disabled {
           opacity: 0.6;
