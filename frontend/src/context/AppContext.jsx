@@ -63,9 +63,16 @@ export function AppProvider({ children }) {
         // Auto-open onboarding if profile is incomplete and user hasn't finished onboarding
         const incomplete = !p.business_type || !p.daily_usage_kg || !p.storage_capacity_kg;
         const tourCompleted = localStorage.getItem("narapangan:v2:onboarding_completed") === "true";
-        if (incomplete && !tourCompleted) {
+        if (incomplete && !tourCompleted && !user?.is_admin && !p.is_admin) {
           setIsOnboardingOpen(true);
         }
+      }
+
+      // Check if user is admin to skip predictions fetching
+      const storedUser = readStored("narapangan:v2:user");
+      if (storedUser?.is_admin || user?.is_admin) {
+        setStatus("done");
+        return;
       }
 
       // 2. Fetch predictions
@@ -293,6 +300,9 @@ export function AppProvider({ children }) {
 
   async function runPrediction(simProps = null) {
     if (!token) return;
+    const storedUser = readStored("narapangan:v2:user");
+    if (storedUser?.is_admin || user?.is_admin) return;
+
     const isSimUpdate = simProps && typeof simProps === "object" && !simProps.nativeEvent && (simProps.simulated_usage !== undefined || simProps.simulated_storage !== undefined);
     const actualSimProps = isSimUpdate ? { simulated_usage: simProps.simulated_usage, simulated_storage: simProps.simulated_storage } : null;
 

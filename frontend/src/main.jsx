@@ -13,6 +13,8 @@ const RiwayatPage = lazy(() => import("./pages/RiwayatPage.jsx").then(m => ({ de
 const KonsultasiPage = lazy(() => import("./pages/KonsultasiPage.jsx").then(m => ({ default: m.KonsultasiPage })));
 const PengaturanPage = lazy(() => import("./pages/PengaturanPage.jsx").then(m => ({ default: m.PengaturanPage })));
 const RegisterPage = lazy(() => import("./pages/RegisterPage.jsx").then(m => ({ default: m.RegisterPage })));
+const AdminUsersPage = lazy(() => import("./pages/AdminUsersPage.jsx").then(m => ({ default: m.AdminUsersPage })));
+const AdminSystemPage = lazy(() => import("./pages/AdminSystemPage.jsx").then(m => ({ default: m.AdminSystemPage })));
 
 const LoadingFallback = () => (
   <div className="page-loader">
@@ -54,6 +56,8 @@ const router = createBrowserRouter([
       { path: "riwayat", element: <RiwayatPage /> },
       { path: "konsultasi", element: <KonsultasiPage /> },
       { path: "pengaturan", element: <PengaturanPage /> },
+      { path: "users", element: <AdminUsersPage /> },
+      { path: "system", element: <AdminSystemPage /> },
       { path: "*", element: <Navigate to="/dashboard" replace /> }
     ]
   },

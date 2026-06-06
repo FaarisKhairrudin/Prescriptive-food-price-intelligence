@@ -895,6 +895,74 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                 self._send_json(500, {"error": "Gagal mengambil laporan data health.", "detail": str(e)})
             return
 
+        if path == "/api/admin/forecast-audit":
+            admin_data = self._authenticate_admin()
+            if not admin_data:
+                return
+
+            try:
+                conn = get_connection()
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT 
+                        f.forecast_date, 
+                        f.target_date, 
+                        f.predicted_price, 
+                        p.price_per_kg AS actual_price
+                    FROM forecasts f
+                    JOIN prices p ON f.target_date = p.date AND p.commodity = 'Cabai Rawit Merah' AND p.market = 'Pasar Caringin'
+                    ORDER BY f.target_date DESC
+                """)
+                rows = cursor.fetchall()
+                conn.close()
+
+                history = []
+                total_absolute_error = 0.0
+                total_absolute_percentage_error = 0.0
+                squared_errors_sum = 0.0
+                n = len(rows)
+
+                for row in rows:
+                    pred = row["predicted_price"]
+                    actual = row["actual_price"]
+                    err = pred - actual
+                    abs_err = abs(err)
+                    
+                    # Prevent division by zero
+                    ape = abs_err / actual if actual > 0 else 0.0
+                    se = err ** 2
+                    
+                    total_absolute_error += abs_err
+                    total_absolute_percentage_error += ape
+                    squared_errors_sum += se
+
+                    history.append({
+                        "forecast_date": row["forecast_date"],
+                        "target_date": row["target_date"],
+                        "predicted_price": pred,
+                        "actual_price": actual,
+                        "error_pct": ape
+                    })
+
+                mae = total_absolute_error / n if n > 0 else 0.0
+                mape = total_absolute_percentage_error / n if n > 0 else 0.0
+                rmse = (squared_errors_sum / n) ** 0.5 if n > 0 else 0.0
+
+                self._send_json(200, {
+                    "summary": {
+                        "mae": round(mae, 2),
+                        "mape": round(mape, 4),
+                        "rmse": round(rmse, 2),
+                        "n_points": n
+                    },
+                    "accuracy_history": history
+                })
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                self._send_json(500, {"error": "Gagal menghitung audit akurasi peramalan.", "detail": str(e)})
+            return
+
         self._send_json(404, {"error": "Endpoint tidak ditemukan."})
 
     def do_POST(self):
