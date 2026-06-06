@@ -20,7 +20,7 @@ from backend.pipeline.main_pipeline import (
     save_payload_to_cache,
     reconstruct_web_payload_from_db
 )
-from backend.database import get_connection
+from backend.database import get_connection, init_db
 from backend.api.auth import verify_password, create_token, verify_token
 
 
@@ -962,6 +962,8 @@ def run_scheduler_loop():
 
 
 def run_server(host: str = HOST, port: int = PORT):
+    init_db()
+
     # Spawn background scheduler loop
     import threading
     scheduler_thread = threading.Thread(target=run_scheduler_loop, daemon=True)
