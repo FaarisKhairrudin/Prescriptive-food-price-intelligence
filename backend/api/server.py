@@ -706,7 +706,7 @@ class NarapanganHandler(BaseHTTPRequestHandler):
 
                 # Health Indicators (Simple logic)
                 import os
-                cache_exists = os.path.exists(str(DATABASE_PATH.parent / "data_cache" / "latest_payload.json"))
+                cache_exists = os.path.exists(str(DATABASE_PATH.parent / "backend" / "data_cache" / "latest_payload.json"))
                 
                 forecast_health = {"status": "healthy", "message": "Proyeksi terisi"}
                 pipeline_health = {"status": "healthy", "message": "Pipeline siap"}
@@ -816,7 +816,7 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                 conn.close()
 
                 import os
-                cache_payload_path = DATABASE_PATH.parent / "data_cache" / "latest_payload.json"
+                cache_payload_path = DATABASE_PATH.parent / "backend" / "data_cache" / "latest_payload.json"
                 cache_exists = os.path.exists(str(cache_payload_path))
                 cache_valid = False
                 cache_age = 0
