@@ -1,7 +1,16 @@
+import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAppContext } from "../context/AppContext";
 
 export function LandingPage() {
   const navigate = useNavigate();
+  const { isAuthenticated } = useAppContext();
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate("/dashboard");
+    }
+  }, [isAuthenticated, navigate]);
 
   return (
     <div className="landing-page">
@@ -17,8 +26,8 @@ export function LandingPage() {
         <p className="landing-subtitle">
           Narapangan membantu Anda memprediksi pergerakan harga cabai rawit merah di Bandung menggunakan teknologi AI. Ambil keputusan stok yang lebih baik hari ini.
         </p>
-        <button className="btn-primary" onClick={() => navigate("/login")}>
-          Mulai Sekarang
+        <button className="btn-primary" onClick={() => navigate(isAuthenticated ? "/dashboard" : "/login")}>
+          {isAuthenticated ? "Masuk ke Dashboard" : "Mulai Sekarang"}
         </button>
       </main>
     </div>

@@ -1,13 +1,31 @@
 import { createContext, useContext, useState, useEffect } from "react";
 import { DEFAULT_PROFILE, PAYLOAD_KEY } from "../utils/constants";
-import { readStored, writeStored } from "../utils/helpers";
+import { readStored, writeStored, isTokenExpired } from "../utils/helpers";
 
 const AppContext = createContext();
 
 export function AppProvider({ children }) {
-  const [token, setToken] = useState(() => localStorage.getItem("narapangan:v2:token") || "");
-  const [user, setUser] = useState(() => readStored("narapangan:v2:user"));
-  const [profile, setProfile] = useState(() => readStored("narapangan:v2:profile") || DEFAULT_PROFILE);
+  const [token, setToken] = useState(() => {
+    const t = localStorage.getItem("narapangan:v2:token") || "";
+    if (t && isTokenExpired(t)) {
+      localStorage.removeItem("narapangan:v2:token");
+      localStorage.removeItem("narapangan:v2:user");
+      localStorage.removeItem("narapangan:v2:profile");
+      localStorage.removeItem(PAYLOAD_KEY);
+      return "";
+    }
+    return t;
+  });
+  const [user, setUser] = useState(() => {
+    const t = localStorage.getItem("narapangan:v2:token") || "";
+    if (t && isTokenExpired(t)) return null;
+    return readStored("narapangan:v2:user");
+  });
+  const [profile, setProfile] = useState(() => {
+    const t = localStorage.getItem("narapangan:v2:token") || "";
+    if (t && isTokenExpired(t)) return DEFAULT_PROFILE;
+    return readStored("narapangan:v2:profile") || DEFAULT_PROFILE;
+  });
   const [payload, setPayload] = useState(null);
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState("");
