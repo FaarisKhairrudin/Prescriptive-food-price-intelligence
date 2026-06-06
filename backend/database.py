@@ -119,11 +119,17 @@ def init_db():
             duration_seconds REAL,
             status TEXT NOT NULL,
             stage_scraping TEXT NOT NULL,
+            stage_scraping_time TEXT,
             stage_weather TEXT NOT NULL,
+            stage_weather_time TEXT,
             stage_feat_eng TEXT NOT NULL,
+            stage_feat_eng_time TEXT,
             stage_forecast TEXT NOT NULL,
+            stage_forecast_time TEXT,
             stage_payload TEXT NOT NULL,
+            stage_payload_time TEXT,
             stage_cache TEXT NOT NULL,
+            stage_cache_time TEXT,
             error_message TEXT
         );
     """)
@@ -169,6 +175,80 @@ def init_db():
     conn.commit()
     conn.close()
     print(f"[database] Database initialized at {DATABASE_PATH}")
+
+def create_pipeline_run(trigger_type: str, run_date: str) -> int:
+    """Creates a new pipeline run entry in pipeline_runs and returns its ID."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    now_str = datetime.now().isoformat()
+    cursor.execute("""
+        INSERT INTO pipeline_runs (
+            run_date, trigger_type, start_time, status,
+            stage_scraping, stage_weather, stage_feat_eng, stage_forecast, stage_payload, stage_cache
+        ) VALUES (?, ?, ?, 'running', 'running', 'pending', 'pending', 'pending', 'pending', 'pending')
+    """, (run_date, trigger_type, now_str))
+    run_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return run_id
+
+def update_pipeline_stage(run_id: int, stage: str, status: str, error_msg: str = None):
+    """Updates the status and timestamp of a specific pipeline execution stage."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    now_str = datetime.now().isoformat()
+    
+    col_status = f"stage_{stage}"
+    col_time = f"stage_{stage}_time"
+    
+    if error_msg:
+        cursor.execute(f"""
+            UPDATE pipeline_runs 
+            SET {col_status} = ?, {col_time} = ?, error_message = ?
+            WHERE id = ?
+        """, (status, now_str, error_msg, run_id))
+    else:
+        cursor.execute(f"""
+            UPDATE pipeline_runs 
+            SET {col_status} = ?, {col_time} = ?
+            WHERE id = ?
+        """, (status, now_str, run_id))
+        
+    conn.commit()
+    conn.close()
+
+def complete_pipeline_run(run_id: int, status: str, error_msg: str = None):
+    """Marks the entire pipeline run as completed (success or failed)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    now_ts = datetime.now()
+    now_str = now_ts.isoformat()
+    
+    cursor.execute("SELECT start_time FROM pipeline_runs WHERE id = ?", (run_id,))
+    row = cursor.fetchone()
+    duration = 0.0
+    if row and row["start_time"]:
+        try:
+            start_ts = datetime.fromisoformat(row["start_time"])
+            duration = (now_ts - start_ts).total_seconds()
+        except ValueError:
+            pass
+            
+    if error_msg:
+        cursor.execute("""
+            UPDATE pipeline_runs 
+            SET status = ?, end_time = ?, duration_seconds = ?, error_message = ?
+            WHERE id = ?
+        """, (status, now_str, duration, error_msg, run_id))
+    else:
+        cursor.execute("""
+            UPDATE pipeline_runs 
+            SET status = ?, end_time = ?, duration_seconds = ?
+            WHERE id = ?
+        """, (status, now_str, duration, run_id))
+        
+    conn.commit()
+    conn.close()
 
 if __name__ == "__main__":
     init_db()

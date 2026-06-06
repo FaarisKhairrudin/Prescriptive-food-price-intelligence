@@ -20,7 +20,7 @@ from backend.pipeline.main_pipeline import (
     save_payload_to_cache,
     reconstruct_web_payload_from_db
 )
-from backend.database import get_connection
+from backend.database import get_connection, create_pipeline_run, update_pipeline_stage, complete_pipeline_run
 from backend.api.auth import verify_password, create_token, verify_token
 
 
@@ -573,6 +573,84 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                 import traceback
                 traceback.print_exc()
                 self._send_json(500, {"error": "Gagal mengambil riwayat chat.", "detail": str(e)})
+            return
+
+        if path == "/api/admin/pipeline-monitor":
+            admin_data = self._authenticate_admin()
+            if not admin_data:
+                return
+
+            try:
+                conn = get_connection()
+                cursor = conn.cursor()
+                
+                # Fetch active run
+                cursor.execute("""
+                    SELECT id, run_date, trigger_type, start_time, duration_seconds, status,
+                           stage_scraping, stage_scraping_time, stage_weather, stage_weather_time,
+                           stage_feat_eng, stage_feat_eng_time, stage_forecast, stage_forecast_time,
+                           stage_payload, stage_payload_time, stage_cache, stage_cache_time, error_message
+                    FROM pipeline_runs 
+                    WHERE status = 'running' 
+                    ORDER BY id DESC LIMIT 1
+                """)
+                active_row = cursor.fetchone()
+                
+                active_run = None
+                if active_row:
+                    start_ts = datetime.fromisoformat(active_row["start_time"])
+                    elapsed = (datetime.now() - start_ts).total_seconds()
+                    
+                    active_run = {
+                        "id": active_row["id"],
+                        "run_date": active_row["run_date"],
+                        "trigger_type": active_row["trigger_type"],
+                        "start_time": active_row["start_time"],
+                        "duration_seconds": elapsed,
+                        "status": active_row["status"],
+                        "stages": {
+                            "scraping": { "status": active_row["stage_scraping"], "timestamp": active_row["stage_scraping_time"] },
+                            "weather": { "status": active_row["stage_weather"], "timestamp": active_row["stage_weather_time"] },
+                            "feat_eng": { "status": active_row["stage_feat_eng"], "timestamp": active_row["stage_feat_eng_time"] },
+                            "forecast": { "status": active_row["stage_forecast"], "timestamp": active_row["stage_forecast_time"] },
+                            "payload": { "status": active_row["stage_payload"], "timestamp": active_row["stage_payload_time"] },
+                            "cache": { "status": active_row["stage_cache"], "timestamp": active_row["stage_cache_time"] }
+                        },
+                        "error_message": active_row["error_message"]
+                    }
+                
+                # Fetch recent runs
+                cursor.execute("""
+                    SELECT id, run_date, trigger_type, start_time, end_time, duration_seconds, status, error_message
+                    FROM pipeline_runs 
+                    ORDER BY id DESC LIMIT 20
+                """)
+                recent_rows = cursor.fetchall()
+                conn.close()
+                
+                recent_runs = []
+                for row in recent_rows:
+                    if active_run and row["id"] == active_run["id"]:
+                        continue
+                    recent_runs.append({
+                        "id": row["id"],
+                        "run_date": row["run_date"],
+                        "trigger_type": row["trigger_type"],
+                        "start_time": row["start_time"],
+                        "end_time": row["end_time"],
+                        "duration_seconds": row["duration_seconds"],
+                        "status": row["status"],
+                        "error_message": row["error_message"]
+                    })
+                    
+                self._send_json(200, {
+                    "active_run": active_run,
+                    "recent_runs": recent_runs
+                })
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                self._send_json(500, {"error": "Gagal mengambil status monitor pipeline.", "detail": str(e)})
             return
 
         if path == "/api/admin/system-status":
@@ -1161,6 +1239,79 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                 import traceback
                 traceback.print_exc()
                 self._send_json(500, {"error": "Gagal menonaktifkan pengguna.", "detail": str(e)})
+            return
+
+        if path == "/api/admin/run-pipeline":
+            admin_data = self._authenticate_admin()
+            if not admin_data:
+                return
+
+            global IS_PIPELINE_RUNNING
+            already_running = False
+            with PIPELINE_LOCK:
+                if IS_PIPELINE_RUNNING:
+                    already_running = True
+                else:
+                    IS_PIPELINE_RUNNING = True
+
+            if already_running:
+                self._send_json(409, {"error": "Pipeline already in progress."})
+                return
+
+            try:
+                # Log that manual pipeline is run
+                conn = get_connection()
+                cursor = conn.cursor()
+                
+                # We target today's date for manual execution
+                run_date_str = datetime.now().strftime("%Y-%m-%d")
+                
+                # Create pipeline runs entry
+                run_id = create_pipeline_run("manual", run_date_str)
+                
+                # Audit log
+                cursor.execute("""
+                    INSERT INTO audit_logs (admin_id, action, target, details)
+                    VALUES (?, 'run_pipeline_manual', ?, ?)
+                """, (admin_data["user_id"], f"pipeline_run_id={run_id}", f"Admin triggered manual pipeline run for date {run_date_str}"))
+                
+                conn.commit()
+                conn.close()
+
+                def run_manual_pipeline_async(run_id_val):
+                    global IS_PIPELINE_RUNNING
+                    try:
+                        print(f"[run-pipeline] Starting manual pipeline run for run_id={run_id_val}")
+                        pipeline_result = run_narapangan_pipeline(headless=True, run_id=run_id_val)
+                        
+                        # Payload creation stage
+                        update_pipeline_stage(run_id_val, "payload", "success")
+                        update_pipeline_stage(run_id_val, "cache", "running")
+                        
+                        p = build_web_payload(pipeline_result)
+                        save_payload_to_cache(p)
+                        
+                        # Cache update stage & Complete run
+                        update_pipeline_stage(run_id_val, "cache", "success")
+                        complete_pipeline_run(run_id_val, "success")
+                        print(f"[run-pipeline] Manual pipeline completed successfully for run_id={run_id_val}")
+                    except Exception as async_err:
+                        print(f"[run-pipeline] Error during manual pipeline: {async_err}")
+                        # complete_pipeline_run(run_id_val, "failed") is already called in run_narapangan_pipeline on exception
+                    finally:
+                        with PIPELINE_LOCK:
+                            IS_PIPELINE_RUNNING = False
+
+                t = threading.Thread(target=run_manual_pipeline_async, args=(run_id,), daemon=True)
+                t.start()
+
+                self._send_json(202, {"success": True, "message": "Pipeline run started."})
+            except Exception as e:
+                with PIPELINE_LOCK:
+                    IS_PIPELINE_RUNNING = False
+                import traceback
+                traceback.print_exc()
+                self._send_json(500, {"error": "Gagal memulai pipeline manual.", "detail": str(e)})
             return
 
         self._send_json(404, {"error": "Endpoint tidak ditemukan."})
