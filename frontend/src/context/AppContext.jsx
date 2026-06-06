@@ -254,6 +254,9 @@ export function AppProvider({ children }) {
 
   async function pollPredictions(attempt = 1, simProps = null) {
     if (!token) return;
+    const isSimUpdate = simProps && typeof simProps === "object" && !simProps.nativeEvent && (simProps.simulated_usage !== undefined || simProps.simulated_storage !== undefined);
+    const actualSimProps = isSimUpdate ? { simulated_usage: simProps.simulated_usage, simulated_storage: simProps.simulated_storage } : null;
+
     try {
       console.log(`[AppContext] Polling predictions, attempt ${attempt}...`);
       const res = await fetch("/api/predict", {
@@ -262,14 +265,14 @@ export function AppProvider({ children }) {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
         },
-        body: JSON.stringify(simProps || {})
+        body: JSON.stringify(actualSimProps || {})
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || data.error || "Gagal mengambil data prediksi.");
       
       if (data.status === "generating") {
         if (attempt < 20) {
-          setTimeout(() => pollPredictions(attempt + 1, simProps), 3000);
+          setTimeout(() => pollPredictions(attempt + 1, actualSimProps), 3000);
         } else {
           throw new Error("Waktu tunggu habis. Silakan refresh halaman.");
         }
@@ -278,7 +281,7 @@ export function AppProvider({ children }) {
       
       const enriched = { ...data, saved_at: new Date().toISOString() };
       setPayload(enriched);
-      if (!simProps) {
+      if (!isSimUpdate) {
         writeStored(PAYLOAD_KEY, enriched);
       }
       setStatus("done");
@@ -290,7 +293,9 @@ export function AppProvider({ children }) {
 
   async function runPrediction(simProps = null) {
     if (!token) return;
-    const isSimUpdate = !!simProps;
+    const isSimUpdate = simProps && typeof simProps === "object" && !simProps.nativeEvent && (simProps.simulated_usage !== undefined || simProps.simulated_storage !== undefined);
+    const actualSimProps = isSimUpdate ? { simulated_usage: simProps.simulated_usage, simulated_storage: simProps.simulated_storage } : null;
+
     if (!isSimUpdate) setStatus("loading");
     setError("");
     try {
@@ -300,14 +305,14 @@ export function AppProvider({ children }) {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
         },
-        body: JSON.stringify(simProps || {})
+        body: JSON.stringify(actualSimProps || {})
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || data.error || "Pipeline gagal.");
       
       if (data.status === "generating") {
         console.log("[AppContext] Forecast is generating. Starting background poll...");
-        pollPredictions(1, simProps);
+        pollPredictions(1, actualSimProps);
         return;
       }
 

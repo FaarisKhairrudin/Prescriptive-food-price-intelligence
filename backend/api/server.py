@@ -516,6 +516,54 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                 self._send_json(500, {"error": "Gagal mengambil profil.", "detail": str(e)})
             return
 
+        if path == "/api/chat/sessions":
+            user_data = self._authenticate()
+            if not user_data:
+                self._send_json(401, {"error": "Sesi kedaluwarsa atau tidak sah. Silakan login kembali."})
+                return
+
+            try:
+                conn = get_connection()
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT id, title, updated_at FROM chat_sessions WHERE user_id = ? ORDER BY updated_at DESC",
+                    (user_data["user_id"],)
+                )
+                sessions_rows = cursor.fetchall()
+
+                sessions = []
+                for row in sessions_rows:
+                    sess_id = row["id"]
+                    cursor.execute(
+                        "SELECT role, message_text, source, timestamp FROM chat_messages WHERE session_id = ? ORDER BY timestamp ASC",
+                        (sess_id,)
+                    )
+                    messages_rows = cursor.fetchall()
+
+                    messages = []
+                    for msg in messages_rows:
+                        messages.append({
+                            "role": msg["role"],
+                            "text": msg["message_text"],
+                            "source": msg["source"],
+                            "timestamp": msg["timestamp"]
+                        })
+
+                    sessions.append({
+                        "id": sess_id,
+                        "title": row["title"],
+                        "updated_at": row["updated_at"],
+                        "messages": messages
+                    })
+
+                conn.close()
+                self._send_json(200, {"sessions": sessions})
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                self._send_json(500, {"error": "Gagal mengambil riwayat chat.", "detail": str(e)})
+            return
+
         self._send_json(404, {"error": "Endpoint tidak ditemukan."})
 
     def do_POST(self):
@@ -747,6 +795,10 @@ class NarapanganHandler(BaseHTTPRequestHandler):
             self._handle_chat(user_data)
             return
 
+        if path == "/api/chat/delete":
+            self._handle_chat_delete(user_data)
+            return
+
         self._send_json(404, {"error": "Endpoint tidak ditemukan."})
 
     def _handle_predict(self, user_data):
@@ -910,6 +962,49 @@ class NarapanganHandler(BaseHTTPRequestHandler):
             print(f"[chat] Selesai. reply.source={source}")
             if reply.get("llm_error"):
                 print(f"[chat] LLM fallback: {reply['llm_error']}")
+
+            # Save session and messages to database
+            try:
+                import time
+                session_id = request_body.get("session_id")
+                if session_id:
+                    session_id = str(session_id)
+                else:
+                    session_id = str(int(time.time() * 1000))
+                
+                conn = get_connection()
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM chat_sessions WHERE id = ? AND user_id = ?", (session_id, user_data["user_id"]))
+                exists = cursor.fetchone()[0] > 0
+                
+                now_ts = int(time.time() * 1000)
+                if not exists:
+                    title = question[:30] + ("..." if len(question) > 30 else "")
+                    cursor.execute(
+                        "INSERT INTO chat_sessions (id, user_id, title, updated_at) VALUES (?, ?, ?, ?)",
+                        (session_id, user_data["user_id"], title, now_ts)
+                    )
+                else:
+                    cursor.execute(
+                        "UPDATE chat_sessions SET updated_at = ? WHERE id = ? AND user_id = ?",
+                        (now_ts, session_id, user_data["user_id"])
+                    )
+                
+                # User message
+                cursor.execute(
+                    "INSERT INTO chat_messages (session_id, role, message_text, source, timestamp) VALUES (?, 'user', ?, NULL, ?)",
+                    (session_id, question, now_ts - 1)
+                )
+                # Assistant reply
+                cursor.execute(
+                    "INSERT INTO chat_messages (session_id, role, message_text, source, timestamp) VALUES (?, 'assistant', ?, ?, ?)",
+                    (session_id, reply["reply"], source, now_ts)
+                )
+                conn.commit()
+                conn.close()
+            except Exception as db_err:
+                print(f"[chat] Gagal menyimpan percakapan ke SQLite: {db_err}")
+
             self._send_json(200, reply)
         except Exception as exc:
             import traceback
@@ -921,6 +1016,24 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                     "detail": str(exc),
                 },
             )
+
+    def _handle_chat_delete(self, user_data):
+        try:
+            request_body = self._read_json()
+            session_id = request_body.get("session_id")
+            if not session_id:
+                self._send_json(400, {"error": "session_id tidak boleh kosong."})
+                return
+
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM chat_sessions WHERE id = ? AND user_id = ?", (str(session_id), user_data["user_id"]))
+            conn.commit()
+            conn.close()
+
+            self._send_json(200, {"ok": True})
+        except Exception as e:
+            self._send_json(500, {"error": "Gagal menghapus percakapan.", "detail": str(e)})
 
     def log_message(self, format, *args):
         timestamp = datetime.now().strftime("%H:%M:%S")

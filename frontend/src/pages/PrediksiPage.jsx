@@ -108,7 +108,7 @@ export function PrediksiPage() {
           )}
         </div>
         <button
-          onClick={runPrediction}
+          onClick={() => runPrediction()}
           disabled={isLoading}
           className="chart-filter-btn"
           style={{ display: "flex", alignItems: "center", gap: "6px", height: "32px" }}

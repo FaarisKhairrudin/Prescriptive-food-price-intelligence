@@ -19,7 +19,14 @@ export function TopBar() {
   const isOverview = pathname === "/dashboard";
 
   const [isNotifOpen, setIsNotifOpen] = useState(false);
+  const [hasRead, setHasRead] = useState(false);
   const dropdownRef = useRef(null);
+
+  const summary = payload?.summary;
+
+  useEffect(() => {
+    setHasRead(false);
+  }, [isDemoMode, summary?.signal_code]);
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -31,7 +38,10 @@ export function TopBar() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const summary = payload?.summary;
+  const handleNotifClick = () => {
+    setIsNotifOpen(!isNotifOpen);
+    setHasRead(true);
+  };
 
   const notifications = [];
   if (isDemoMode) {
@@ -83,9 +93,9 @@ export function TopBar() {
           <input type="text" placeholder="Cari komoditas, wilayah..." />
         </div>
         <div className="notif-wrapper" style={{ position: "relative" }} ref={dropdownRef}>
-          <button className="notif-btn" onClick={() => setIsNotifOpen(!isNotifOpen)}>
+          <button className="notif-btn" onClick={handleNotifClick}>
             <Bell size={18} />
-            {notifications.length > 0 && <span className="notif-badge"></span>}
+            {notifications.length > 0 && !hasRead && <span className="notif-badge"></span>}
           </button>
           {isNotifOpen && (
             <div className="notif-dropdown">
