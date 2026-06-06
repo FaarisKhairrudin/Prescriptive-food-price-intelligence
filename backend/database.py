@@ -148,7 +148,7 @@ def init_db():
     """)
 
     # Run migrations for existing users table if columns don't exist on disk
-    for col, definition in [("is_blocked", "INTEGER DEFAULT 0"), ("deleted_at", "TEXT DEFAULT NULL")]:
+    for col, definition in [("is_blocked", "INTEGER DEFAULT 0"), ("deleted_at", "TEXT DEFAULT NULL"), ("last_login", "TEXT DEFAULT NULL")]:
         try:
             cursor.execute(f"SELECT {col} FROM users LIMIT 1")
         except sqlite3.OperationalError:

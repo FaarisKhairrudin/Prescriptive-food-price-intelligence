@@ -489,28 +489,28 @@ export function AdminUsersPage() {
                 <div>
                   <span style={{ fontSize: "11px", textTransform: "uppercase", color: "var(--muted)", fontWeight: "700" }}>Pemakaian Harian</span>
                   <div style={{ fontSize: "14px", fontWeight: "500", marginTop: 2 }}>
-                    {selectedUser.daily_usage_kg !== null && selectedUser.daily_usage_kg !== undefined ? `${selectedUser.daily_usage_kg} kg/hari` : "-"}
+                    {selectedUser.profile?.daily_usage_kg !== null && selectedUser.profile?.daily_usage_kg !== "" && selectedUser.profile?.daily_usage_kg !== undefined ? `${selectedUser.profile.daily_usage_kg} kg/hari` : "-"}
                   </div>
                 </div>
                 <div>
                   <span style={{ fontSize: "11px", textTransform: "uppercase", color: "var(--muted)", fontWeight: "700" }}>Kapasitas Simpan</span>
                   <div style={{ fontSize: "14px", fontWeight: "500", marginTop: 2 }}>
-                    {selectedUser.storage_capacity_kg !== null && selectedUser.storage_capacity_kg !== undefined ? `${selectedUser.storage_capacity_kg} kg` : "-"}
+                    {selectedUser.profile?.storage_capacity_kg !== null && selectedUser.profile?.storage_capacity_kg !== "" && selectedUser.profile?.storage_capacity_kg !== undefined ? `${selectedUser.profile.storage_capacity_kg} kg` : "-"}
                   </div>
                 </div>
                 <div>
                   <span style={{ fontSize: "11px", textTransform: "uppercase", color: "var(--muted)", fontWeight: "700" }}>Ketahanan Stok</span>
                   <div style={{ fontSize: "14px", fontWeight: "500", marginTop: 2 }}>
-                    {selectedUser.stock_days !== null && selectedUser.stock_days !== undefined ? `${selectedUser.stock_days} hari` : "-"}
+                    {selectedUser.profile?.stock_days !== null && selectedUser.profile?.stock_days !== "" && selectedUser.profile?.stock_days !== undefined ? `${selectedUser.profile.stock_days} hari` : "-"}
                   </div>
                 </div>
                 <div>
                   <span style={{ fontSize: "11px", textTransform: "uppercase", color: "var(--muted)", fontWeight: "700" }}>Gaya Belanja</span>
-                  <div style={{ fontSize: "14px", fontWeight: "500", marginTop: 2 }}>{selectedUser.buying_style || "-"}</div>
+                  <div style={{ fontSize: "14px", fontWeight: "500", marginTop: 2 }}>{selectedUser.profile?.buying_style || "-"}</div>
                 </div>
                 <div style={{ gridColumn: "span 2" }}>
                   <span style={{ fontSize: "11px", textTransform: "uppercase", color: "var(--muted)", fontWeight: "700" }}>Fleksibilitas Menyesuaikan Harga Menu</span>
-                  <div style={{ fontSize: "14px", fontWeight: "500", marginTop: 2 }}>{selectedUser.can_adjust_price || "-"}</div>
+                  <div style={{ fontSize: "14px", fontWeight: "500", marginTop: 2 }}>{selectedUser.profile?.can_adjust_price || "-"}</div>
                 </div>
               </div>
             </div>

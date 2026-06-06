@@ -752,7 +752,7 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                 conn = get_connection()
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT id, email, is_admin, is_blocked, deleted_at, business_type, 
+                    SELECT id, email, is_admin, is_blocked, deleted_at, last_login, business_type, 
                            daily_usage_kg, stock_days, storage_capacity_kg, buying_style, can_adjust_price, created_at 
                     FROM users 
                     ORDER BY id ASC
@@ -768,6 +768,7 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                         "is_admin": bool(row["is_admin"]),
                         "is_blocked": bool(row["is_blocked"]),
                         "deleted_at": row["deleted_at"],
+                        "last_login": row["last_login"],
                         "created_at": row["created_at"],
                         "business_type": row["business_type"] or "",
                         "profile": {
@@ -1000,6 +1001,14 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                     self._send_json(403, {"error": "Akun Anda telah dinonaktifkan oleh administrator."})
                     return
 
+                # Update last login time
+                now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                conn = get_connection()
+                cursor = conn.cursor()
+                cursor.execute("UPDATE users SET last_login = ? WHERE id = ?", (now_str, row["id"]))
+                conn.commit()
+                conn.close()
+
                 user_payload = {
                     "user_id": row["id"],
                     "email": row["email"],
@@ -1138,6 +1147,11 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                         "buying_style": row["buying_style"] or "Aman stok",
                         "can_adjust_price": row["can_adjust_price"] or "Sulit naik harga"
                     }
+                
+                # Update last login time
+                now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                cursor.execute("UPDATE users SET last_login = ? WHERE id = ?", (now_str, user_id))
+                conn.commit()
                 conn.close()
 
                 user_payload = {
