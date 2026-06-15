@@ -11,11 +11,11 @@ except ImportError:
     from nasa_weather import get_nasa_weather_garut
     from hijri_features import generate_hijri_features as _generate_hijri_features
 try:
-    from backend.database import get_connection
+    from backend.database import get_connection, update_pipeline_stage, complete_pipeline_run
 except ImportError:
     import sys
     sys.path.append(str(Path(__file__).resolve().parents[2]))
-    from backend.database import get_connection
+    from backend.database import get_connection, update_pipeline_stage, complete_pipeline_run
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CONFIG
@@ -99,7 +99,8 @@ def _safe_float(val):
 def build_daily_dataset(
     start_date: str,
     end_date: str,
-    headless: bool = True
+    headless: bool = True,
+    run_id: int | None = None
 ) -> pd.DataFrame:
     """
     Ambil dan gabungkan:
@@ -110,12 +111,24 @@ def build_daily_dataset(
     conn = get_connection()
     cursor = conn.cursor()
 
-    # Cek apakah data untuk end_date sudah pernah di-crawl hari ini
-    cursor.execute("SELECT COUNT(*) FROM crawls WHERE run_date = ?", (end_date,))
-    already_crawled = cursor.fetchone()[0] > 0
+    # Cache is usable only when the stored price series really reaches end_date.
+    cursor.execute("""
+        SELECT MAX(date)
+        FROM prices
+        WHERE commodity = 'Cabai Rawit Merah'
+          AND market = 'Pasar Caringin'
+          AND date <= ?
+    """, (end_date,))
+    latest_cached_price_date = cursor.fetchone()[0]
+    cache_covers_end_date = bool(
+        latest_cached_price_date and latest_cached_price_date >= end_date
+    )
     conn.close()
 
-    if already_crawled:
+    if cache_covers_end_date:
+        if run_id:
+            update_pipeline_stage(run_id, "scraping", "success")
+            update_pipeline_stage(run_id, "weather", "success")
         print(f"[DATABASE] Cache hit: Memuat daily dataset dari SQLite ({start_date} s.d. {end_date})")
         conn = get_connection()
         query = """
@@ -138,6 +151,8 @@ def build_daily_dataset(
     print(f"[DATABASE] Cache miss untuk {end_date}. Mengambil data dari PIHPS dan NASA Weather...")
 
     # 1. PIHPS Price Data
+    if run_id:
+        update_pipeline_stage(run_id, "scraping", "running")
     df_price = get_pihps_cabai_rawit_bandung(
         start_date=start_date,
         end_date=end_date,
@@ -146,14 +161,20 @@ def build_daily_dataset(
 
     # Simpan ke database
     conn = get_connection()
+    latest_price_date = None
     for _, row in df_price.iterrows():
         dt_str = pd.to_datetime(row["tanggal"]).strftime("%Y-%m-%d")
+        latest_price_date = max(latest_price_date or dt_str, dt_str)
         conn.execute("""
             INSERT OR REPLACE INTO prices (date, commodity, market, price_per_kg)
             VALUES (?, 'Cabai Rawit Merah', 'Pasar Caringin', ?)
         """, (dt_str, _safe_float(row["harga"])))
     conn.commit()
     conn.close()
+
+    if run_id:
+        update_pipeline_stage(run_id, "scraping", "success")
+        update_pipeline_stage(run_id, "weather", "running")
 
     # 2. NASA Weather Garut
     df_weather = get_nasa_weather_garut(
@@ -170,15 +191,20 @@ def build_daily_dataset(
             VALUES (?, ?, ?, ?)
         """, (dt_str, _safe_float(row["Garut_PRECTOTCORR"]), _safe_float(row["Garut_T2M"]), _safe_float(row["Garut_RH2M"])))
     
-    # Catat bahwa crawl untuk end_date telah dilakukan hari ini
+    # Record the latest date actually covered by the source, not the requested
+    # end_date, so stale intraday PIHPS data can be retried later.
     now_ts = int(datetime.now().timestamp())
-    conn.execute("""
-        INSERT OR REPLACE INTO crawls (run_date, timestamp)
-        VALUES (?, ?)
-    """, (end_date, now_ts))
+    if latest_price_date:
+        conn.execute("""
+            INSERT OR REPLACE INTO crawls (run_date, timestamp)
+            VALUES (?, ?)
+        """, (latest_price_date, now_ts))
     
     conn.commit()
     conn.close()
+
+    if run_id:
+        update_pipeline_stage(run_id, "weather", "success")
 
     # Load data yang sudah digabungkan dari database
     conn = get_connection()
@@ -441,7 +467,8 @@ def build_forecast_ready_dataset(
 def build_prediction_input_datasets(
     end_date: str,
     headless: bool = True,
-    history_weeks: int = FETCH_HISTORY_WEEKS
+    history_weeks: int = FETCH_HISTORY_WEEKS,
+    run_id: int | None = None
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Pipeline input inference model produksi NBEATSx.
@@ -463,10 +490,14 @@ def build_prediction_input_datasets(
     print(f"Fetch data dari        : {fetch_start_date} s.d. {end_date}")
     print(f"Hijri features sampai  : {hijri_end_date}\n")
 
+    if run_id:
+        update_pipeline_stage(run_id, "feat_eng", "running")
+
     df_daily = build_daily_dataset(
         start_date=fetch_start_date,
         end_date=end_date,
-        headless=headless
+        headless=headless,
+        run_id=run_id
     )
 
     df_hijri_weekly = generate_hijri_features(
@@ -475,11 +506,16 @@ def build_prediction_input_datasets(
         freq=FREQ
     )
 
-    return build_train_and_future_from_daily(
+    result = build_train_and_future_from_daily(
         bandung_garut=df_daily,
         hijri_weekly=df_hijri_weekly,
         horizon=HORIZON
     )
+
+    if run_id:
+        update_pipeline_stage(run_id, "feat_eng", "success")
+
+    return result
 
 
 def _ensure_neuralforecast_lightning_compatibility() -> None:
@@ -581,7 +617,7 @@ def predict_future_prices(
     # Save forecasts to DB
     try:
         conn = get_connection()
-        forecast_date = pd.Timestamp.today().strftime("%Y-%m-%d")
+        forecast_date = pd.to_datetime(train_df["ds"].max()).strftime("%Y-%m-%d")
         for _, row in prediction_df.iterrows():
             target_date = pd.to_datetime(row["ds"]).strftime("%Y-%m-%d")
             conn.execute("""
@@ -705,7 +741,8 @@ def build_prediction_report(
 def run_narapangan_pipeline(
     end_date: str | None = None,
     headless: bool = True,
-    model_dir: str | Path = DEFAULT_MODEL_DIR
+    model_dir: str | Path = DEFAULT_MODEL_DIR,
+    run_id: int | None = None
 ) -> dict:
     """
     One-call pipeline untuk web app:
@@ -715,21 +752,39 @@ def run_narapangan_pipeline(
     if end_date is None:
         end_date = pd.Timestamp.today().strftime("%Y-%m-%d")
 
-    train_df, futr_df = build_prediction_input_datasets(
-        end_date=end_date,
-        headless=headless
-    )
-    prediction_df = predict_future_prices(
-        train_df=train_df,
-        futr_df=futr_df,
-        model_dir=model_dir
-    )
+    try:
+        train_df, futr_df = build_prediction_input_datasets(
+            end_date=end_date,
+            headless=headless,
+            run_id=run_id
+        )
+        
+        if run_id:
+            update_pipeline_stage(run_id, "forecast", "running")
+            
+        prediction_df = predict_future_prices(
+            train_df=train_df,
+            futr_df=futr_df,
+            model_dir=model_dir
+        )
+        
+        if run_id:
+            update_pipeline_stage(run_id, "forecast", "success")
+            update_pipeline_stage(run_id, "payload", "running")
 
-    return build_prediction_report(
-        train_df=train_df,
-        futr_df=futr_df,
-        prediction_df=prediction_df
-    )
+        report = build_prediction_report(
+            train_df=train_df,
+            futr_df=futr_df,
+            prediction_df=prediction_df
+        )
+        
+        # Note: payload success is logged in the caller after build_web_payload
+        return report
+    except Exception as e:
+        if run_id:
+            # Mark the entire run as failed and save the error message
+            complete_pipeline_run(run_id, "failed", error_msg=str(e))
+        raise e
 
 
 def _dataframe_to_web_records(df: pd.DataFrame) -> list[dict]:
@@ -791,6 +846,43 @@ def load_payload_from_cache() -> dict | None:
         print(f"[CACHE] Error reading payload from cache: {e}")
         return None
 
+def _price_rows_to_weekly_train_df(price_rows) -> pd.DataFrame:
+    """
+    Converts cached daily price rows into the same weekly shape used by inference.
+    """
+
+    price_df = pd.DataFrame(
+        [
+            {
+                "Tanggal": pd.to_datetime(row["date"]),
+                TARGET: float(row["price_per_kg"]),
+            }
+            for row in price_rows
+        ]
+    )
+    if price_df.empty:
+        return pd.DataFrame(columns=["unique_id", "ds", "y"])
+
+    last_daily_date = price_df["Tanggal"].max().normalize()
+    weekly = (
+        price_df
+        .set_index("Tanggal")
+        .resample(FREQ)
+        .mean(numeric_only=True)
+        .reset_index()
+        .rename(columns={"Tanggal": "ds", TARGET: "y"})
+    )
+    weekly = (
+        weekly[weekly["ds"] <= last_daily_date]
+        .dropna(subset=["y"])
+        .sort_values("ds")
+        .tail(52)
+        .reset_index(drop=True)
+    )
+    weekly["unique_id"] = UNIQUE_ID
+
+    return weekly[["unique_id", "ds", "y"]]
+
 def reconstruct_web_payload_from_db(forecast_date: str | None = None) -> dict | None:
     """
     Reconstructs the full web payload from SQLite database tables (prices, forecasts)
@@ -823,15 +915,10 @@ def reconstruct_web_payload_from_db(forecast_date: str | None = None) -> dict | 
             conn.close()
             return None
 
-        # Build train_df representation
-        train_data = []
-        for r in price_rows:
-            train_data.append({
-                "unique_id": UNIQUE_ID,
-                "ds": pd.to_datetime(r["date"]),
-                "y": float(r["price_per_kg"])
-            })
-        train_df = pd.DataFrame(train_data)
+        train_df = _price_rows_to_weekly_train_df(price_rows)
+        if train_df.empty:
+            conn.close()
+            return None
 
         # 2. Fetch forecasts
         cursor.execute("""

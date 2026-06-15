@@ -64,16 +64,24 @@ export function buildChartData(history, forecast) {
     });
   }
 
-  // Add forecast data points — first forecast connects to last actual
+  // Start the forecast line from the final historical point so both series meet.
   if (forecast && forecast.length > 0) {
-    const lastActual = history && history.length > 0 ? history[history.length - 1].actual_price : null;
+    const lastHistory = history && history.length > 0 ? history[history.length - 1] : null;
+    const lastActual = lastHistory ? lastHistory.actual_price : null;
 
-    forecast.forEach((f, i) => {
+    if (lastHistory && lastActual != null) {
+      const lastRow = rows[rows.length - 1];
+      if (lastRow && lastRow.date === lastHistory.ds) {
+        lastRow.forecast = lastActual;
+      }
+    }
+
+    forecast.forEach((f) => {
       const d = new Date(f.ds);
       rows.push({
         date: f.ds,
         label: `${d.getDate()} ${monthNames[d.getMonth()]}`,
-        actual: i === 0 ? lastActual : null,  // bridge point
+        actual: null,
         forecast: f.predicted_price,
       });
     });
@@ -89,5 +97,24 @@ export function readStored(key) {
   } catch (e) {
     console.error("Storage error:", e);
     return null;
+  }
+}
+
+export function isTokenExpired(token) {
+  if (!token) return true;
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return true;
+    let b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    while (b64.length % 4) {
+      b64 += "=";
+    }
+    const payload = JSON.parse(atob(b64));
+    if (payload.exp && payload.exp < Date.now() / 1000) {
+      return true;
+    }
+    return false;
+  } catch (e) {
+    return true;
   }
 }

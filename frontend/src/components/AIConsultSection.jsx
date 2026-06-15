@@ -5,7 +5,8 @@ import { QUICK_QUESTIONS } from "../utils/constants";
 import { useAppContext } from "../context/AppContext";
 
 export function AIConsultSection({ payload, businessProfile }) {
-  const { token } = useAppContext();
+  const { token, user } = useAppContext();
+  const userName = businessProfile?.business_type || (user?.email ? user.email.split("@")[0] : "Pemilik Usaha");
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState([]);
   const [status, setStatus] = useState("idle");
@@ -52,7 +53,7 @@ export function AIConsultSection({ payload, businessProfile }) {
   const summary = payload?.summary;
   const pctText = summary ? `${Math.abs(summary.pct_change_avg).toFixed(1)}%` : "";
   const greeting = summary
-    ? `Selamat siang, [User]. Berdasarkan prediksi minggu ini, harga cabai rawit merah di Bandung diperkirakan ${summary.pct_change_avg >= 0 ? "naik" : "turun"} ${pctText} pekan depan. Ada yang ingin Anda diskusikan?`
+    ? `Selamat siang, ${userName}. Berdasarkan prediksi minggu ini, harga cabai rawit merah di Bandung diperkirakan ${summary.pct_change_avg >= 0 ? "naik" : "turun"} ${pctText} pekan depan. Ada yang ingin Anda diskusikan?`
     : "Selamat siang! Jalankan prediksi terlebih dahulu agar saya bisa membantu Anda.";
 
   return (
