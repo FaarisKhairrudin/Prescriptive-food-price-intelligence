@@ -1,13 +1,31 @@
 import { createContext, useContext, useState, useEffect } from "react";
 import { DEFAULT_PROFILE, PAYLOAD_KEY } from "../utils/constants";
-import { readStored, writeStored } from "../utils/helpers";
+import { readStored, writeStored, isTokenExpired } from "../utils/helpers";
 
 const AppContext = createContext();
 
 export function AppProvider({ children }) {
-  const [token, setToken] = useState(() => localStorage.getItem("narapangan:v2:token") || "");
-  const [user, setUser] = useState(() => readStored("narapangan:v2:user"));
-  const [profile, setProfile] = useState(() => readStored("narapangan:v2:profile") || DEFAULT_PROFILE);
+  const [token, setToken] = useState(() => {
+    const t = localStorage.getItem("narapangan:v2:token") || "";
+    if (t && isTokenExpired(t)) {
+      localStorage.removeItem("narapangan:v2:token");
+      localStorage.removeItem("narapangan:v2:user");
+      localStorage.removeItem("narapangan:v2:profile");
+      localStorage.removeItem(PAYLOAD_KEY);
+      return "";
+    }
+    return t;
+  });
+  const [user, setUser] = useState(() => {
+    const t = localStorage.getItem("narapangan:v2:token") || "";
+    if (t && isTokenExpired(t)) return null;
+    return readStored("narapangan:v2:user");
+  });
+  const [profile, setProfile] = useState(() => {
+    const t = localStorage.getItem("narapangan:v2:token") || "";
+    if (t && isTokenExpired(t)) return DEFAULT_PROFILE;
+    return readStored("narapangan:v2:profile") || DEFAULT_PROFILE;
+  });
   const [payload, setPayload] = useState(null);
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState("");
@@ -63,9 +81,16 @@ export function AppProvider({ children }) {
         // Auto-open onboarding if profile is incomplete and user hasn't finished onboarding
         const incomplete = !p.business_type || !p.daily_usage_kg || !p.storage_capacity_kg;
         const tourCompleted = localStorage.getItem("narapangan:v2:onboarding_completed") === "true";
-        if (incomplete && !tourCompleted) {
+        if (incomplete && !tourCompleted && !user?.is_admin && !p.is_admin) {
           setIsOnboardingOpen(true);
         }
+      }
+
+      // Check if user is admin to skip predictions fetching
+      const storedUser = readStored("narapangan:v2:user");
+      if (storedUser?.is_admin || user?.is_admin) {
+        setStatus("done");
+        return;
       }
 
       // 2. Fetch predictions
@@ -252,8 +277,11 @@ export function AppProvider({ children }) {
     }
   }
 
-  async function pollPredictions(attempt = 1) {
+  async function pollPredictions(attempt = 1, simProps = null) {
     if (!token) return;
+    const isSimUpdate = simProps && typeof simProps === "object" && !simProps.nativeEvent && (simProps.simulated_usage !== undefined || simProps.simulated_storage !== undefined);
+    const actualSimProps = isSimUpdate ? { simulated_usage: simProps.simulated_usage, simulated_storage: simProps.simulated_storage } : null;
+
     try {
       console.log(`[AppContext] Polling predictions, attempt ${attempt}...`);
       const res = await fetch("/api/predict", {
@@ -261,14 +289,15 @@ export function AppProvider({ children }) {
         headers: { 
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
-        }
+        },
+        body: JSON.stringify(actualSimProps || {})
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || data.error || "Gagal mengambil data prediksi.");
       
       if (data.status === "generating") {
         if (attempt < 20) {
-          setTimeout(() => pollPredictions(attempt + 1), 3000);
+          setTimeout(() => pollPredictions(attempt + 1, actualSimProps), 3000);
         } else {
           throw new Error("Waktu tunggu habis. Silakan refresh halaman.");
         }
@@ -277,7 +306,9 @@ export function AppProvider({ children }) {
       
       const enriched = { ...data, saved_at: new Date().toISOString() };
       setPayload(enriched);
-      writeStored(PAYLOAD_KEY, enriched);
+      if (!isSimUpdate) {
+        writeStored(PAYLOAD_KEY, enriched);
+      }
       setStatus("done");
     } catch (err) {
       setError(err.message);
@@ -285,9 +316,15 @@ export function AppProvider({ children }) {
     }
   }
 
-  async function runPrediction() {
+  async function runPrediction(simProps = null) {
     if (!token) return;
-    setStatus("loading");
+    const storedUser = readStored("narapangan:v2:user");
+    if (storedUser?.is_admin || user?.is_admin) return;
+
+    const isSimUpdate = simProps && typeof simProps === "object" && !simProps.nativeEvent && (simProps.simulated_usage !== undefined || simProps.simulated_storage !== undefined);
+    const actualSimProps = isSimUpdate ? { simulated_usage: simProps.simulated_usage, simulated_storage: simProps.simulated_storage } : null;
+
+    if (!isSimUpdate) setStatus("loading");
     setError("");
     try {
       const res = await fetch("/api/predict", {
@@ -295,20 +332,23 @@ export function AppProvider({ children }) {
         headers: { 
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
-        }
+        },
+        body: JSON.stringify(actualSimProps || {})
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || data.error || "Pipeline gagal.");
       
       if (data.status === "generating") {
         console.log("[AppContext] Forecast is generating. Starting background poll...");
-        pollPredictions(1);
+        pollPredictions(1, actualSimProps);
         return;
       }
 
       const enriched = { ...data, saved_at: new Date().toISOString() };
       setPayload(enriched);
-      writeStored(PAYLOAD_KEY, enriched);
+      if (!isSimUpdate) {
+        writeStored(PAYLOAD_KEY, enriched);
+      }
       setStatus("done");
     } catch (err) {
       setError(err.message);

@@ -6,32 +6,47 @@ import { formatDate } from "../utils/helpers";
 import { useAppContext } from "../context/AppContext";
 
 export function KonsultasiPage() {
-  const { payload, profile, token } = useAppContext();
+  const { payload, profile, token, user } = useAppContext();
+  const userName = profile?.business_type || (user?.email ? user.email.split("@")[0] : "Pemilik Usaha");
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState([]);
   const [status, setStatus] = useState("idle");
   const messagesEndRef = useRef(null);
 
   // Chat History Logic
-  const [sessions, setSessions] = useState(() => {
-    const s = localStorage.getItem("narapangan:chat_sessions");
-    return s ? JSON.parse(s) : [];
-  });
-  const [currentSessionId, setCurrentSessionId] = useState(Date.now());
+  const [sessions, setSessions] = useState([]);
+  const [currentSessionId, setCurrentSessionId] = useState(null);
 
   useEffect(() => {
-    if (messages.length > 0) {
-      setSessions((prev) => {
-        const exists = prev.find((s) => s.id === currentSessionId);
-        const title = messages[0]?.text.slice(0, 30) + (messages[0]?.text.length > 30 ? "..." : "");
-        const updated = exists
-          ? prev.map((s) => (s.id === currentSessionId ? { ...s, messages, updatedAt: Date.now() } : s))
-          : [{ id: currentSessionId, title, messages, updatedAt: Date.now() }, ...prev];
-        localStorage.setItem("narapangan:chat_sessions", JSON.stringify(updated));
-        return updated;
-      });
+    if (token) {
+      fetchSessions();
     }
-  }, [messages, currentSessionId]);
+  }, [token]);
+
+  async function fetchSessions() {
+    try {
+      const res = await fetch("/api/chat/sessions", {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSessions(data.sessions || []);
+        if (data.sessions && data.sessions.length > 0) {
+          if (!currentSessionId) {
+            setMessages(data.sessions[0].messages);
+            setCurrentSessionId(data.sessions[0].id);
+          } else {
+            const cur = data.sessions.find(s => s.id === currentSessionId);
+            if (cur) setMessages(cur.messages);
+          }
+        } else if (!currentSessionId) {
+          setCurrentSessionId(Date.now().toString());
+        }
+      }
+    } catch (err) {
+      console.error("Gagal memuat sesi chat:", err);
+    }
+  }
 
   function loadSession(id) {
     const s = sessions.find((x) => x.id === id);
@@ -41,20 +56,32 @@ export function KonsultasiPage() {
     }
   }
 
-  function deleteSession(e, id) {
+  async function deleteSession(e, id) {
     e.stopPropagation();
-    const updated = sessions.filter((s) => s.id !== id);
-    setSessions(updated);
-    localStorage.setItem("narapangan:chat_sessions", JSON.stringify(updated));
-    if (id === currentSessionId) {
-      setMessages([]);
-      setCurrentSessionId(Date.now());
+    try {
+      const res = await fetch("/api/chat/delete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ session_id: id })
+      });
+      if (res.ok) {
+        setSessions((prev) => prev.filter((s) => s.id !== id));
+        if (id === currentSessionId) {
+          setMessages([]);
+          setCurrentSessionId(Date.now().toString());
+        }
+      }
+    } catch (err) {
+      console.error("Gagal menghapus sesi chat:", err);
     }
   }
 
   function clearChat() {
     setMessages([]);
-    setCurrentSessionId(Date.now());
+    setCurrentSessionId(Date.now().toString());
     setStatus("idle");
   }
 
@@ -84,12 +111,14 @@ export function KonsultasiPage() {
           question: q,
           business_profile: profile,
           chat_history: chatHistory,
+          session_id: currentSessionId,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || data.error || "Konsultasi gagal.");
       setMessages((prev) => [...prev, { role: "assistant", text: data.reply, source: data.source }]);
       setStatus("done");
+      fetchSessions();
     } catch (err) {
       setMessages((prev) => [...prev, { role: "assistant", text: `Maaf, konsultasi AI sedang gagal. ${err.message}`, source: "error" }]);
       setStatus("error");
@@ -98,7 +127,7 @@ export function KonsultasiPage() {
 
   const summary = payload?.summary;
   const greeting = summary
-    ? `Selamat siang, [User]. Berdasarkan prediksi minggu ini, harga cabai rawit merah di Bandung diperkirakan ${summary.pct_change_avg >= 0 ? "naik" : "turun"} ${Math.abs(summary.pct_change_avg).toFixed(1)}% pekan depan. Ada yang ingin Anda diskusikan?`
+    ? `Selamat siang, ${userName}. Berdasarkan prediksi minggu ini, harga cabai rawit merah di Bandung diperkirakan ${summary.pct_change_avg >= 0 ? "naik" : "turun"} ${Math.abs(summary.pct_change_avg).toFixed(1)}% pekan depan. Ada yang ingin Anda diskusikan?`
     : "Selamat siang! Jalankan prediksi terlebih dahulu agar saya bisa memberikan saran yang lebih akurat.";
 
   function formatTimeAgo(ts) {

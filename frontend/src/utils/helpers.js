@@ -99,3 +99,22 @@ export function readStored(key) {
     return null;
   }
 }
+
+export function isTokenExpired(token) {
+  if (!token) return true;
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return true;
+    let b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    while (b64.length % 4) {
+      b64 += "=";
+    }
+    const payload = JSON.parse(atob(b64));
+    if (payload.exp && payload.exp < Date.now() / 1000) {
+      return true;
+    }
+    return false;
+  } catch (e) {
+    return true;
+  }
+}

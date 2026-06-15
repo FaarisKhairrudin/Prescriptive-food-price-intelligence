@@ -1,5 +1,5 @@
 import { ArrowUpRight, ArrowDownRight, RefreshCw, Calendar, ChevronRight, Sparkles } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import { formatRp, formatSigned, formatCurrency, formatDate, buildChartData } from "../utils/helpers";
@@ -19,6 +19,26 @@ export function PrediksiPage() {
   const [isSimulating, setIsSimulating] = useState(true);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const { summary = {}, history = [], forecast = [] } = payload || {};
+
+  // Track first mount to prevent duplicate call on load
+  const isFirstMount = useRef(true);
+
+  // Debounce simulation slider changes to refresh AI explanation text dynamically
+  useEffect(() => {
+    if (isFirstMount.current) {
+      isFirstMount.current = false;
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      runPrediction({
+        simulated_usage: simulatedUsage,
+        simulated_storage: simulatedStorage
+      });
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [simulatedUsage, simulatedStorage]);
 
   const chartData = useMemo(() => {
     if (!payload) return [];
@@ -79,7 +99,7 @@ export function PrediksiPage() {
         <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
           <span className="context-badge">
             <span className="context-badge-dot"></span>
-            Profil Aktif: {isDemoMode ? "Mode Demo" : (profile.business_type || "Umum")} · {isDemoMode ? "2.0" : (profile.daily_usage_kg || 0)} Kg/Hari · {isDemoMode ? "10" : (profile.storage_capacity_kg || 0)} Kg Simpan
+            Profil Aktif: {isDemoMode ? "Mode Demo" : (profile.business_type || "Umum")} · {isDemoMode ? "2.0" : (profile.daily_usage_kg || 0)} Kg/Hari · {isDemoMode ? "10" : (profile.storage_capacity_kg || 0)} Kg Simpan · Gaya: {profile.buying_style || "Aman stok"}
           </span>
           {formattedSavedAt && (
             <span style={{ fontSize: "12px", color: "var(--muted)" }}>
@@ -88,7 +108,7 @@ export function PrediksiPage() {
           )}
         </div>
         <button
-          onClick={runPrediction}
+          onClick={() => runPrediction()}
           disabled={isLoading}
           className="chart-filter-btn"
           style={{ display: "flex", alignItems: "center", gap: "6px", height: "32px" }}
@@ -369,36 +389,19 @@ export function PrediksiPage() {
             </div>
           </div>
           <div className="forecast-list">
-            {forecast.map((row, i) => {
-              const pct = row.change_from_last_pct;
-              let actionText = "Pantau";
-              let actionCls = "pantau";
-              let purchaseQty = 0;
-
-              if (pct > 2.0) {
-                actionText = isDemoMode ? "Demo (Beli)" : "Beli";
-                actionCls = "beli";
-                purchaseQty = Math.min(simulatedStorage, simulatedUsage * 14);
-              } else if (pct < -2.0) {
-                actionText = isDemoMode ? "Demo (Tahan)" : "Tahan";
-                actionCls = "simpan";
-                purchaseQty = Math.max(simulatedUsage * 2, simulatedUsage * 3.5);
-              } else {
-                actionText = isDemoMode ? "Demo (Pantau)" : "Pantau";
-                actionCls = "pantau";
-                purchaseQty = Math.min(simulatedStorage, simulatedUsage * 7);
-              }
-
-              return (
-                <ForecastCard
-                  key={row.ds}
-                  row={row}
-                  index={i}
-                  showAction={true}
-                  customAction={{ text: actionText, cls: actionCls, volume: purchaseQty }}
-                />
-              );
-            })}
+            {forecast.map((row, i) => (
+              <ForecastCard
+                key={row.ds}
+                row={row}
+                index={i}
+                showAction={true}
+                dailyUsage={simulatedUsage}
+                storageCapacity={simulatedStorage}
+              />
+            ))}
+          </div>
+          <div className="forecast-explanation-footer" style={{ marginTop: "12px", fontSize: "11px", color: "var(--muted)", lineHeight: "1.4" }}>
+            * Asumsi volume pengadaan: <strong>Beli</strong> = 14 hari pemakaian (maks kapasitas simpan), <strong>Pantau</strong> = 7 hari pemakaian (maks kapasitas simpan), <strong>Tahan</strong> = 3.5 hari pemakaian (Beli Minimum / Safety Stock).
           </div>
         </div>
       </div>
