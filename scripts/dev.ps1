@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
-$VenvPython = Join-Path $Root ".venv\Scripts\python.exe"
+$VenvPython = Join-Path $Root "venv\Scripts\python.exe"
 
 if (Test-Path $VenvPython) {
     $Python = $VenvPython
