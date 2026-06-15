@@ -202,7 +202,10 @@ export function OverviewPage() {
                 width={48}
               />
               <Tooltip
-                formatter={(v) => formatCurrency(v)}
+                formatter={(value, name) => {
+                  if (name === "forecast-range") return null;
+                  return [formatCurrency(value), name === "actual" ? "Harga Aktual" : "Harga Proyeksi"];
+                }}
                 labelFormatter={(_, rows) => rows?.[0]?.payload?.date || ""}
                 contentStyle={{
                   borderRadius: 8,
@@ -213,6 +216,7 @@ export function OverviewPage() {
               <Area
                 type="monotone"
                 dataKey="forecast"
+                name="forecast-range"
                 fill={CHART_COLORS.forecastFill}
                 fillOpacity={0.22}
                 stroke="none"
@@ -221,6 +225,7 @@ export function OverviewPage() {
               <Line
                 type="monotone"
                 dataKey="actual"
+                name="actual"
                 stroke={CHART_COLORS.actual}
                 strokeWidth={3}
                 dot={{ r: 4, fill: CHART_COLORS.actual }}
@@ -229,6 +234,7 @@ export function OverviewPage() {
               <Line
                 type="monotone"
                 dataKey="forecast"
+                name="forecast"
                 stroke={CHART_COLORS.forecast}
                 strokeWidth={3}
                 strokeDasharray="8 7"
@@ -248,7 +254,13 @@ export function OverviewPage() {
           </div>
           <div className="forecast-list">
             {forecast.map((row, i) => (
-              <ForecastCard key={row.ds} row={row} index={i} showAction={true} />
+              <ForecastCard
+                key={row.ds}
+                row={row}
+                index={i}
+                showAction={true}
+                previousPrice={i === 0 ? summary.last_actual_price : forecast[i - 1].predicted_price}
+              />
             ))}
           </div>
           <div className="forecast-explanation-footer" style={{ marginTop: "12px", fontSize: "11px", color: "var(--muted)", lineHeight: "1.4" }}>

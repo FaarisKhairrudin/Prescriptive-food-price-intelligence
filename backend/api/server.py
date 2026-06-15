@@ -528,6 +528,118 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                 self._send_json(500, {"error": "Gagal mengambil profil.", "detail": str(e)})
             return
 
+        if path == "/api/predict/audit":
+            user_data = self._authenticate()
+            if not user_data:
+                self._send_json(401, {"error": "Sesi kedaluwarsa atau tidak sah. Silakan login kembali."})
+                return
+
+            try:
+                conn = get_connection()
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT 
+                        f.forecast_date, 
+                        f.target_date, 
+                        f.predicted_price, 
+                        p_target.price_per_kg AS actual_price,
+                        p_forecast.price_per_kg AS baseline_price
+                    FROM forecasts f
+                    JOIN prices p_target ON f.target_date = p_target.date 
+                        AND p_target.commodity = 'Cabai Rawit Merah' 
+                        AND p_target.market = 'Pasar Caringin'
+                    LEFT JOIN prices p_forecast ON f.forecast_date = p_forecast.date 
+                        AND p_forecast.commodity = 'Cabai Rawit Merah' 
+                        AND p_forecast.market = 'Pasar Caringin'
+                    INNER JOIN (
+                        SELECT target_date, MAX(forecast_date) as max_forecast_date
+                        FROM forecasts
+                        WHERE model_version = 'NBEATSx'
+                        GROUP BY target_date
+                    ) latest ON f.target_date = latest.target_date AND f.forecast_date = latest.max_forecast_date
+                    ORDER BY f.target_date DESC
+                """)
+                rows = cursor.fetchall()
+
+                history = []
+                total_absolute_error = 0.0
+                total_absolute_percentage_error = 0.0
+                squared_errors_sum = 0.0
+                n = len(rows)
+
+                correct_direction_points = 0
+                valid_direction_points = 0
+
+                for row in rows:
+                    pred = row["predicted_price"]
+                    actual = row["actual_price"]
+                    err = pred - actual
+                    abs_err = abs(err)
+                    
+                    ape = abs_err / actual if actual > 0 else 0.0
+                    se = err ** 2
+                    
+                    total_absolute_error += abs_err
+                    total_absolute_percentage_error += ape
+                    squared_errors_sum += se
+
+                    baseline = row["baseline_price"]
+                    if baseline is None:
+                        cursor2 = conn.cursor()
+                        cursor2.execute("""
+                            SELECT price_per_kg FROM prices
+                            WHERE commodity = 'Cabai Rawit Merah' AND market = 'Pasar Caringin'
+                              AND date <= ?
+                            ORDER BY date DESC LIMIT 1
+                        """, (row["forecast_date"],))
+                        fb = cursor2.fetchone()
+                        if fb:
+                            baseline = fb["price_per_kg"]
+
+                    is_dir_correct = None
+                    if baseline is not None:
+                        actual_diff = actual - baseline
+                        pred_diff = pred - baseline
+                        
+                        actual_sign = 1 if actual_diff > 0 else (-1 if actual_diff < 0 else 0)
+                        pred_sign = 1 if pred_diff > 0 else (-1 if pred_diff < 0 else 0)
+                        
+                        is_dir_correct = 1 if actual_sign == pred_sign else 0
+                        correct_direction_points += is_dir_correct
+                        valid_direction_points += 1
+
+                    history.append({
+                        "forecast_date": row["forecast_date"],
+                        "target_date": row["target_date"],
+                        "predicted_price": pred,
+                        "actual_price": actual,
+                        "error_pct": ape,
+                        "direction_correct": is_dir_correct
+                    })
+
+                conn.close()
+
+                mae = total_absolute_error / n if n > 0 else 0.0
+                mape = total_absolute_percentage_error / n if n > 0 else 0.0
+                rmse = (squared_errors_sum / n) ** 0.5 if n > 0 else 0.0
+                da = correct_direction_points / valid_direction_points if valid_direction_points > 0 else 0.0
+
+                self._send_json(200, {
+                    "summary": {
+                        "mae": round(mae, 2),
+                        "mape": round(mape, 4),
+                        "rmse": round(rmse, 2),
+                        "da": round(da, 4),
+                        "n_points": n
+                    },
+                    "accuracy_history": history
+                })
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                self._send_json(500, {"error": "Gagal menghitung audit akurasi peramalan.", "detail": str(e)})
+            return
+
         if path == "/api/chat/sessions":
             user_data = self._authenticate()
             if not user_data:
@@ -910,19 +1022,33 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                         f.forecast_date, 
                         f.target_date, 
                         f.predicted_price, 
-                        p.price_per_kg AS actual_price
+                        p_target.price_per_kg AS actual_price,
+                        p_forecast.price_per_kg AS baseline_price
                     FROM forecasts f
-                    JOIN prices p ON f.target_date = p.date AND p.commodity = 'Cabai Rawit Merah' AND p.market = 'Pasar Caringin'
+                    JOIN prices p_target ON f.target_date = p_target.date 
+                        AND p_target.commodity = 'Cabai Rawit Merah' 
+                        AND p_target.market = 'Pasar Caringin'
+                    LEFT JOIN prices p_forecast ON f.forecast_date = p_forecast.date 
+                        AND p_forecast.commodity = 'Cabai Rawit Merah' 
+                        AND p_forecast.market = 'Pasar Caringin'
+                    INNER JOIN (
+                        SELECT target_date, MAX(forecast_date) as max_forecast_date
+                        FROM forecasts
+                        WHERE model_version = 'NBEATSx'
+                        GROUP BY target_date
+                    ) latest ON f.target_date = latest.target_date AND f.forecast_date = latest.max_forecast_date
                     ORDER BY f.target_date DESC
                 """)
                 rows = cursor.fetchall()
-                conn.close()
 
                 history = []
                 total_absolute_error = 0.0
                 total_absolute_percentage_error = 0.0
                 squared_errors_sum = 0.0
                 n = len(rows)
+
+                correct_direction_points = 0
+                valid_direction_points = 0
 
                 for row in rows:
                     pred = row["predicted_price"]
@@ -938,23 +1064,55 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                     total_absolute_percentage_error += ape
                     squared_errors_sum += se
 
+                    # Directional Accuracy baseline price resolution
+                    baseline = row["baseline_price"]
+                    if baseline is None:
+                        # Fallback to closest price on or before forecast_date
+                        cursor2 = conn.cursor()
+                        cursor2.execute("""
+                            SELECT price_per_kg FROM prices
+                            WHERE commodity = 'Cabai Rawit Merah' AND market = 'Pasar Caringin'
+                              AND date <= ?
+                            ORDER BY date DESC LIMIT 1
+                        """, (row["forecast_date"],))
+                        fb = cursor2.fetchone()
+                        if fb:
+                            baseline = fb["price_per_kg"]
+
+                    is_dir_correct = None
+                    if baseline is not None:
+                        actual_diff = actual - baseline
+                        pred_diff = pred - baseline
+                        
+                        actual_sign = 1 if actual_diff > 0 else (-1 if actual_diff < 0 else 0)
+                        pred_sign = 1 if pred_diff > 0 else (-1 if pred_diff < 0 else 0)
+                        
+                        is_dir_correct = 1 if actual_sign == pred_sign else 0
+                        correct_direction_points += is_dir_correct
+                        valid_direction_points += 1
+
                     history.append({
                         "forecast_date": row["forecast_date"],
                         "target_date": row["target_date"],
                         "predicted_price": pred,
                         "actual_price": actual,
-                        "error_pct": ape
+                        "error_pct": ape,
+                        "direction_correct": is_dir_correct
                     })
+
+                conn.close()
 
                 mae = total_absolute_error / n if n > 0 else 0.0
                 mape = total_absolute_percentage_error / n if n > 0 else 0.0
                 rmse = (squared_errors_sum / n) ** 0.5 if n > 0 else 0.0
+                da = correct_direction_points / valid_direction_points if valid_direction_points > 0 else 0.0
 
                 self._send_json(200, {
                     "summary": {
                         "mae": round(mae, 2),
                         "mape": round(mape, 4),
                         "rmse": round(rmse, 2),
+                        "da": round(da, 4),
                         "n_points": n
                     },
                     "accuracy_history": history

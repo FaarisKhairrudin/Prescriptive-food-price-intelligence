@@ -53,27 +53,26 @@ export function buildChartData(history, forecast) {
 
   // Add historical data points
   if (history && history.length > 0) {
-    history.forEach((h) => {
+    history.forEach((h, i) => {
       const d = new Date(h.ds);
+      const isLast = i === history.length - 1;
       rows.push({
         date: h.ds,
         label: `${d.getDate()} ${monthNames[d.getMonth()]}`,
         actual: h.actual_price,
-        forecast: null,
+        forecast: isLast && forecast && forecast.length > 0 ? h.actual_price : null, // bridge starts at last actual
       });
     });
   }
 
-  // Add forecast data points — first forecast connects to last actual
+  // Add forecast data points
   if (forecast && forecast.length > 0) {
-    const lastActual = history && history.length > 0 ? history[history.length - 1].actual_price : null;
-
-    forecast.forEach((f, i) => {
+    forecast.forEach((f) => {
       const d = new Date(f.ds);
       rows.push({
         date: f.ds,
         label: `${d.getDate()} ${monthNames[d.getMonth()]}`,
-        actual: i === 0 ? lastActual : null,  // bridge point
+        actual: null,
         forecast: f.predicted_price,
       });
     });
@@ -81,6 +80,7 @@ export function buildChartData(history, forecast) {
 
   return rows;
 }
+
 
 export function readStored(key) {
   try {

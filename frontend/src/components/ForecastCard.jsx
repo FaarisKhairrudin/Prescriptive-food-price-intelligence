@@ -1,9 +1,8 @@
 import { formatRp, formatSigned } from "../utils/helpers";
 import { useAppContext } from "../context/AppContext";
 
-export function ForecastCard({ row, index, showAction = false, dailyUsage, storageCapacity }) {
+export function ForecastCard({ row, index, showAction = false, dailyUsage, storageCapacity, previousPrice }) {
   const { profile, isDemoMode } = useAppContext();
-  const isUp = row.change_from_last_pct >= 0;
   
   // Parse date to get just the day (e.g., "26")
   const dateObj = new Date(row.ds);
@@ -12,7 +11,12 @@ export function ForecastCard({ row, index, showAction = false, dailyUsage, stora
   const activeUsage = dailyUsage !== undefined ? dailyUsage : (parseFloat(profile.daily_usage_kg) || 2.0);
   const activeStorage = storageCapacity !== undefined ? storageCapacity : (parseFloat(profile.storage_capacity_kg) || 10.0);
 
-  const pct = row.change_from_last_pct;
+  // Calculate percentage change relative to previous week's price (or last actual price)
+  const basePrice = previousPrice !== undefined && previousPrice !== null ? previousPrice : row.predicted_price;
+  const pct = basePrice > 0 ? ((row.predicted_price - basePrice) / basePrice * 100) : 0;
+  
+  const isUp = pct >= 0;
+
   let actionText = "Pantau";
   let actionCls = "pantau";
   let purchaseQty = 0;
@@ -48,7 +52,7 @@ export function ForecastCard({ row, index, showAction = false, dailyUsage, stora
         <div className={`fi-tag ${tagClass}`}>{tagText}</div>
       </div>
       <div className={`fi-change ${isUp ? "up" : "down"}`}>
-        {isUp ? "↗" : "↘"} {formatSigned(row.change_from_last_pct)}
+        {isUp ? "↗" : "↘"} {formatSigned(pct)}
       </div>
       {showAction && (
         <div className={`fi-action ${actionCls}`}>

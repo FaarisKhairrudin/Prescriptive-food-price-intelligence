@@ -3,6 +3,6 @@ requests
 tqdm
 playwright
 hijri-converter
-neuralforecast
+neuralforecast>=3.1.7
 torch
-pytorch-lightning<2.0
+pytorch-lightning>=2.0.0

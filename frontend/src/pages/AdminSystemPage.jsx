@@ -558,7 +558,7 @@ export function AdminSystemPage() {
         <div className="sys-card">
           <h3 className="sys-card-title">
             <Cpu size={18} />
-            Akurasi Model (Cabai Rawit)
+            Akurasi Model (Kuantitatif)
           </h3>
           {accuracy ? (
             <div>
@@ -573,11 +573,34 @@ export function AdminSystemPage() {
                 </div>
               </div>
               <div style={{ fontSize: 12, color: "var(--muted)", textAlign: "center" }}>
-                Dihitung langsung dari <strong>{accuracy.n_points}</strong> titik data historis vs prediksi (Pasar Caringin).
+                Mengukur besarnya simpangan prediksi nominal terhadap realisasi harga pasar.
               </div>
             </div>
           ) : (
             <div style={{ color: "var(--muted)", fontSize: 14 }}>Memuat data akurasi...</div>
+          )}
+        </div>
+
+        {/* Module 4: Directional Accuracy */}
+        <div className="sys-card">
+          <h3 className="sys-card-title">
+            <Activity size={18} />
+            Akurasi Arah Tren (DA)
+          </h3>
+          {accuracy ? (
+            <div>
+              <div className="metric-mini-grid" style={{ marginBottom: 12 }}>
+                <div className="metric-mini-card" style={{ gridColumn: "span 2" }}>
+                  <span className="metric-mini-label">Directional Accuracy</span>
+                  <span className="metric-mini-value" style={{ fontSize: 24, color: "var(--primary)" }}>{(accuracy.da * 100).toFixed(2)}%</span>
+                </div>
+              </div>
+              <div style={{ fontSize: 12, color: "var(--muted)", textAlign: "center" }}>
+                Ketepatan model memprediksi naik/turunnya harga cabai dibanding minggu sebelumnya.
+              </div>
+            </div>
+          ) : (
+            <div style={{ color: "var(--muted)", fontSize: 14 }}>Memuat data DA...</div>
           )}
         </div>
       </div>
