@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { formatDate } from "../utils/helpers";
 import { useAppContext } from "../context/AppContext";
+import { COMMODITY_OPTIONS, MARKET_OPTIONS } from "../utils/constants";
 
 const PAGE_TITLES = {
   "/dashboard": "Overview",
@@ -14,8 +15,11 @@ const PAGE_TITLES = {
 
 export function TopBar() {
   const { pathname } = useLocation();
-  const { payload, profile, isDemoMode } = useAppContext();
-  const title = PAGE_TITLES[pathname] || "Dashboard";
+  const { payload, profile, isDemoMode, selectedCommodity, setSelectedCommodity, isLoading } = useAppContext();
+  const selectedCommodityLabel = COMMODITY_OPTIONS.find((item) => item.value === selectedCommodity)?.label || "Cabai Rawit Merah";
+  const title = pathname === "/dashboard/prediksi"
+    ? `Prediksi Harga ${selectedCommodityLabel}`
+    : PAGE_TITLES[pathname] || "Dashboard";
   const isOverview = pathname === "/dashboard";
 
   const [isNotifOpen, setIsNotifOpen] = useState(false);
@@ -72,20 +76,25 @@ export function TopBar() {
         <div className="page-date">{formatDate(new Date().toISOString())}</div>
         <h1 className="page-title">{title}</h1>
         <div className="page-subtitle">
-          {isOverview ? `Pantau harga cabai rawit merah Bandung` : 'Pasar Bandung'}
+          {isOverview ? `Pantau harga ${selectedCommodityLabel.toLowerCase()} Bandung` : 'Pasar Bandung'}
         </div>
       </div>
       <div className="top-bar-actions">
         <div className="selector-group">
-          <select className="premium-select" defaultValue="cabai-rawit-merah">
-            <option value="cabai-rawit-merah">Cabai Rawit Merah</option>
-            <option value="bawang-merah" disabled>Bawang Merah (Segera)</option>
-            <option value="bawang-putih" disabled>Bawang Putih (Segera)</option>
+          <select
+            className="premium-select"
+            value={selectedCommodity}
+            onChange={(event) => setSelectedCommodity(event.target.value)}
+            disabled={isLoading}
+          >
+            {COMMODITY_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
           </select>
           <select className="premium-select" defaultValue="pasar-caringin">
-            <option value="pasar-caringin">Pasar Caringin</option>
-            <option value="pasar-sederhana" disabled>Pasar Sederhana (Segera)</option>
-            <option value="pasar-kosambi" disabled>Pasar Kosambi (Segera)</option>
+            {MARKET_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
           </select>
         </div>
         <div className="search-box">

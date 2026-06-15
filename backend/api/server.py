@@ -14,7 +14,9 @@ from backend.api.gemini_client import (
     is_gemini_configured,
 )
 from backend.pipeline.main_pipeline import (
+    COMMODITY_CONFIGS,
     build_web_payload,
+    get_commodity_config,
     run_narapangan_pipeline,
     load_payload_from_cache,
     save_payload_to_cache,
@@ -38,11 +40,11 @@ IS_PIPELINE_RUNNING = False
 HOST = "127.0.0.1"
 PORT = 8000
 NARAPANGAN_SYSTEM_PROMPT = """
-Kamu adalah AI Narapangan, analis pengadaan cabai untuk UMKM F&B Bandung.
-Jawab hanya topik prediksi harga cabai, strategi stok/pembelian, UMKM makanan,
-cuaca Garut, kalender Hijriah, dan hasil forecast Narapangan. Jika user bertanya
+Kamu adalah AI Narapangan, analis pengadaan komoditas pangan untuk UMKM F&B Bandung.
+Jawab hanya topik prediksi harga komoditas Narapangan, strategi stok/pembelian,
+UMKM makanan, cuaca Garut, kalender Hijriah, dan hasil forecast Narapangan. Jika user bertanya
 di luar domain seperti coding, matematika umum, PR, esai, hiburan, atau topik
-lain, tolak singkat dan arahkan kembali ke konsultasi stok cabai.
+lain, tolak singkat dan arahkan kembali ke konsultasi stok komoditas pangan.
 
 Gunakan bahasa Indonesia yang natural, praktis, dan ramah untuk user non-teknis.
 Jangan menyebut nama arsitektur model teknis; sebut "AI Narapangan" atau
@@ -77,6 +79,9 @@ OUT_OF_SCOPE_KEYWORDS = {
 IN_SCOPE_KEYWORDS = {
     "cabai",
     "cabe",
+    "telur",
+    "ayam ras",
+    "bawang",
     "harga",
     "stok",
     "umkm",
@@ -224,6 +229,8 @@ def _clean_chat_reply(text: str) -> str:
 def build_rule_based_explanation(payload: dict, business_profile: dict | None = None) -> dict:
     summary = payload["summary"]
     forecast = payload["forecast"]
+    commodity_name = (payload.get("commodity") or {}).get("display_name") or summary.get("commodity") or "komoditas"
+    commodity_lower = commodity_name.lower()
     business_profile = _clean_business_profile(business_profile)
 
     first_forecast = forecast[0]
@@ -243,7 +250,7 @@ def build_rule_based_explanation(payload: dict, business_profile: dict | None = 
         posture = (
             f"Kenaikan mulai terasa menjelang {peak_week['ds']}, jadi "
             "boleh dipertimbangkan menambah sebagian stok lebih awal dan "
-            "prioritaskan menu yang paling bergantung pada cabai."
+            f"prioritaskan menu yang paling bergantung pada {commodity_lower}."
         )
     elif summary["signal_code"] == "hold_purchase":
         posture = (
@@ -278,9 +285,11 @@ def build_rule_based_explanation(payload: dict, business_profile: dict | None = 
             "AI untuk menimbang strategi pembelian."
         ),
         "drivers": [
-            "Harga historis cabai rawit merah Bandung",
-            "Suhu Garut lag 8 minggu",
-            "Kelembaban Garut lag 13 minggu",
+            f"Harga historis {commodity_lower} Bandung",
+            *([] if commodity_lower == "telur ayam ras" else [
+                "Suhu Garut lag 8 minggu",
+                "Kelembaban Garut lag 13 minggu",
+            ]),
             "Kalender Ramadan, Idul Fitri, dan Idul Adha",
         ],
         "source": "rule_based",
@@ -290,6 +299,7 @@ def build_rule_based_explanation(payload: dict, business_profile: dict | None = 
 
 def _forecast_context_for_prompt(payload: dict, business_profile: dict | None = None) -> str:
     summary = payload["summary"]
+    commodity_name = (payload.get("commodity") or {}).get("display_name") or summary.get("commodity") or "komoditas"
     forecast_lines = []
     for row in payload["forecast"]:
         calendar_bits = []
@@ -300,17 +310,22 @@ def _forecast_context_for_prompt(payload: dict, business_profile: dict | None = 
         if row.get("is_idul_adha"):
             calendar_bits.append("Idul Adha")
         calendar = ", ".join(calendar_bits) if calendar_bits else "normal"
+        weather_bits = []
+        if row.get("Garut_T2M_lag8w") is not None:
+            weather_bits.append(f"suhu Garut lag 8 minggu {_format_number(row.get('Garut_T2M_lag8w'))} C")
+        if row.get("Garut_RH2M_lag13w") is not None:
+            weather_bits.append(f"kelembaban Garut lag 13 minggu {_format_number(row.get('Garut_RH2M_lag13w'))}%")
+        weather_text = ", " + ", ".join(weather_bits) if weather_bits else ""
         forecast_lines.append(
             f"- Minggu {row['week']} ({row['ds']}): prediksi "
             f"{_format_rupiah(row['predicted_price'])}/kg, perubahan "
-            f"{row['change_from_last_pct']:+.2f}%, kalender {calendar}, "
-            f"suhu Garut lag 8 minggu {_format_number(row.get('Garut_T2M_lag8w'))} C, "
-            f"kelembaban Garut lag 13 minggu {_format_number(row.get('Garut_RH2M_lag13w'))}%"
+            f"{row['change_from_last_pct']:+.2f}%, kalender {calendar}{weather_text}"
         )
 
     return "\n".join(
         [
             "Ringkasan prediksi:",
+            f"- Komoditas: {commodity_name}",
             f"- Harga terakhir: {_format_rupiah(summary['last_actual_price'])}/kg pada {summary['last_actual_date']}",
             f"- Rata-rata prediksi 4 minggu: {_format_rupiah(summary['avg_predicted_price'])}/kg",
             f"- Perubahan rata-rata: {summary['pct_change_avg']:+.2f}%",
@@ -387,8 +402,8 @@ def build_chat_reply(
         return {
             "reply": (
                 "Saya hanya bisa membantu konsultasi seputar prediksi harga cabai, "
-                "stok, pembelian, dan keputusan UMKM berdasarkan hasil Narapangan. "
-                "Coba tanyakan strategi belanja cabai atau risiko harga minggu depan."
+                "telur, bawang, stok, pembelian, dan keputusan UMKM berdasarkan hasil Narapangan. "
+                "Coba tanyakan strategi belanja komoditas atau risiko harga minggu depan."
             ),
             "source": "guardrail",
         }
@@ -1420,6 +1435,8 @@ class NarapanganHandler(BaseHTTPRequestHandler):
             print(f"[predict] Request diterima untuk user_id={user_data['user_id']}")
             request_body = self._read_json()
             end_date = request_body.get("end_date") or None
+            commodity_slug = str(request_body.get("commodity") or "cabai-rawit-merah").strip().lower()
+            config = get_commodity_config(commodity_slug)
 
             # Query profile from database
             conn = get_connection()
@@ -1452,17 +1469,17 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                 business_profile["storage_capacity_kg"] = str(sim_storage)
 
             # 1. Try loading from cache file
-            payload = load_payload_from_cache()
+            payload = load_payload_from_cache(config.slug)
 
             if payload:
-                print("[predict] Cache hit: Loaded from latest_payload.json")
+                print(f"[predict] Cache hit: Loaded payload for {config.slug}")
             else:
                 print("[predict] Cache miss: Attempting DB reconstruction...")
                 # 2. Try database reconstruction
-                payload = reconstruct_web_payload_from_db()
+                payload = reconstruct_web_payload_from_db(commodity_slug=config.slug)
                 if payload:
                     print("[predict] DB reconstruction successful.")
-                    save_payload_to_cache(payload)
+                    save_payload_to_cache(payload, commodity_slug=config.slug)
                 else:
                     # Database is empty. Trigger async pipeline execution and return 202.
                     global IS_PIPELINE_RUNNING
@@ -1485,9 +1502,12 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                         def run_pipeline_async():
                             global IS_PIPELINE_RUNNING
                             try:
-                                pipeline_result = run_narapangan_pipeline(headless=True)
+                                pipeline_result = run_narapangan_pipeline(
+                                    headless=True,
+                                    commodity_slug=config.slug,
+                                )
                                 p = build_web_payload(pipeline_result)
-                                save_payload_to_cache(p)
+                                save_payload_to_cache(p, commodity_slug=config.slug)
                                 print("[ASYNC-PIPELINE] Completed successfully. Cache populated.")
                             except Exception as async_err:
                                 print(f"[ASYNC-PIPELINE] Error running background pipeline: {async_err}")

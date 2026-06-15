@@ -19,6 +19,9 @@ export function PrediksiPage() {
   const [isSimulating, setIsSimulating] = useState(true);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const { summary = {}, history = [], forecast = [] } = payload || {};
+  const commodityName = payload?.commodity?.display_name || summary.commodity || "Komoditas";
+  const commodityLower = commodityName.toLowerCase();
+  const marketName = payload?.commodity?.market || summary.market || "Pasar Caringin";
 
   // Track first mount to prevent duplicate call on load
   const isFirstMount = useRef(true);
@@ -122,7 +125,7 @@ export function PrediksiPage() {
       {isDemoMode && (
         <div className="demo-mode-banner">
           <p className="demo-mode-text">
-            ⚠️ <strong>Mode Demo Aktif</strong> — Rencana pengadaan menggunakan parameter default (2.0 Kg/Hari, 10 Kg Simpan). Lengkapi profil bisnis Anda untuk melihat rekomendasi pengadaan cabai yang disesuaikan untuk usaha Anda.
+            ⚠️ <strong>Mode Demo Aktif</strong> — Rencana pengadaan menggunakan parameter default (2.0 Kg/Hari, 10 Kg Simpan). Lengkapi profil bisnis Anda untuk melihat rekomendasi pengadaan {commodityLower} yang disesuaikan untuk usaha Anda.
           </p>
           <button className="demo-mode-btn" onClick={() => setIsOnboardingOpen(true)}>
             Mulai Atur Profil Usaha
@@ -144,7 +147,7 @@ export function PrediksiPage() {
           </div>
           <div className="metric-detail">
             <Calendar size={14} className="metric-detail-icon" />
-            <span className="metric-detail-text">{formatDate(summary.last_actual_date)} · Caringin</span>
+            <span className="metric-detail-text">{formatDate(summary.last_actual_date)} · {marketName.replace("Pasar ", "")}</span>
           </div>
         </div>
 
@@ -253,7 +256,7 @@ export function PrediksiPage() {
             <div className="sim-body">
               <div className="sim-control">
                 <div className="sim-control-header">
-                  <span className="sim-label">Simulasi Pemakaian Cabai Usaha Anda</span>
+                  <span className="sim-label">Simulasi Pemakaian {commodityName} Usaha Anda</span>
                   <span className="sim-val">{simulatedUsage.toFixed(1)} Kg/Hari</span>
                 </div>
                 <input
@@ -312,7 +315,7 @@ export function PrediksiPage() {
             <div>
               <h3 className="chart-title">Proyeksi Transmisi Harga 4 Minggu ke Depan</h3>
               <p className="chart-subtitle">
-                {profile.business_type || "UMKM"} · {simulatedUsage ? `${simulatedUsage.toFixed(1)} Kg/Hari (Simulasi)` : "Caringin"}
+                {profile.business_type || "UMKM"} · {simulatedUsage ? `${simulatedUsage.toFixed(1)} Kg/Hari (Simulasi)` : marketName}
               </p>
             </div>
             <div className="chart-controls-legend-wrapper">

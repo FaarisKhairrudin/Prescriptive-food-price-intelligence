@@ -70,8 +70,10 @@ def init_db():
             target_date TEXT NOT NULL,
             predicted_price REAL NOT NULL,
             model_version TEXT NOT NULL,
+            commodity TEXT DEFAULT 'Cabai Rawit Merah',
+            market TEXT DEFAULT 'Pasar Caringin',
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(forecast_date, target_date, model_version)
+            UNIQUE(forecast_date, target_date, model_version, commodity, market)
         );
     """)
 
@@ -154,6 +156,16 @@ def init_db():
         except sqlite3.OperationalError:
             print(f"[database] Migrating database: adding '{col}' column to 'users'")
             cursor.execute(f"ALTER TABLE users ADD COLUMN {col} {definition}")
+
+    for col, definition in [
+        ("commodity", "TEXT DEFAULT 'Cabai Rawit Merah'"),
+        ("market", "TEXT DEFAULT 'Pasar Caringin'"),
+    ]:
+        try:
+            cursor.execute(f"SELECT {col} FROM forecasts LIMIT 1")
+        except sqlite3.OperationalError:
+            print(f"[database] Migrating database: adding '{col}' column to 'forecasts'")
+            cursor.execute(f"ALTER TABLE forecasts ADD COLUMN {col} {definition}")
 
     # Create default admin user if none exists
     cursor.execute("SELECT COUNT(*) FROM users WHERE email = 'admin@narapangan.com'")
