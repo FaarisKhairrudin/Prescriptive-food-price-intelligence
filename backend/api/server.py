@@ -171,7 +171,7 @@ def _chat_history_context(history: list[dict[str, str]]) -> str:
     return "Riwayat percakapan sesi ini:\n" + "\n".join(lines)
 
 
-def _business_profile_sentence(profile: dict) -> str:
+def _business_profile_sentence(profile: dict, commodity_lower: str = "cabai") -> str:
     if not profile:
         return "Profil UMKM belum diisi, jadi pertimbangan dibuat secara umum."
 
@@ -179,7 +179,7 @@ def _business_profile_sentence(profile: dict) -> str:
     if profile.get("business_type"):
         parts.append(f"jenis usaha {profile['business_type']}")
     if profile.get("daily_usage_kg"):
-        parts.append(f"pemakaian cabai sekitar {profile['daily_usage_kg']} kg/hari")
+        parts.append(f"pemakaian {commodity_lower} sekitar {profile['daily_usage_kg']} kg/hari")
     if profile.get("stock_days"):
         parts.append(f"stok saat ini cukup untuk {profile['stock_days']} hari")
     if profile.get("storage_capacity_kg"):
@@ -265,7 +265,7 @@ def build_rule_based_explanation(payload: dict, business_profile: dict | None = 
         f"Puncak ada di {peak_week['ds']} sekitar {_format_rupiah(peak_week['predicted_price'])}/kg "
         f"dan titik rendah di {low_week['ds']} sekitar {_format_rupiah(low_week['predicted_price'])}/kg. "
         f"{hijri_note}"
-        f"{_business_profile_sentence(business_profile)} "
+        f"{_business_profile_sentence(business_profile, commodity_lower)} "
         f"Sinyal utamanya {summary['signal_label']}. {posture}"
     )
 
@@ -328,7 +328,7 @@ def _forecast_context_for_prompt(payload: dict, business_profile: dict | None = 
             "Rincian 4 minggu ke depan:",
             "\n".join(forecast_lines),
             "",
-            _business_profile_sentence(_clean_business_profile(business_profile)),
+            _business_profile_sentence(_clean_business_profile(business_profile), commodity_name.lower()),
         ]
     )
 
@@ -338,22 +338,34 @@ def build_llm_explanation(payload: dict, business_profile: dict | None = None) -
     if not is_gemini_configured():
         return fallback
 
-    prompt = _forecast_context_for_prompt(payload, business_profile) + """
+    commodity = payload.get("commodity") or {}
+    commodity_slug = commodity.get("slug") or "cabai-rawit-merah"
+    commodity_name = commodity.get("display_name") or "Cabai Rawit Merah"
+
+    accuracy_warning = ""
+    if commodity_slug != "cabai-rawit-merah":
+        accuracy_warning = (
+            f"\n\nCATATAN UNTUK AI: Akurasi model {commodity_name} masih relatif rendah dibanding cabai rawit merah. "
+            "Beri peringatan lembut di kalimat body agar pemilik usaha lebih berhati-hati "
+            "dalam merencanakan stok."
+        )
+
+    prompt = _forecast_context_for_prompt(payload, business_profile) + f"""
 
 Buat insight analitik untuk kartu "Analisis AI Narapangan".
 Kembalikan JSON valid saja tanpa markdown dengan schema:
-{
+{{
   "headline": "judul insight maksimal 12 kata, spesifik terhadap arah harga",
   "body": "3 kalimat maksimal 90 kata. Kalimat 1 membaca arah harga dan menyebut harga saat ini, harga minggu depan, serta rata-rata 4 minggu. Kalimat 2 membaca pola mingguan, sebut minggu puncak atau minggu yang mulai melandai, dan kaitkan singkat dengan profil UMKM bila ada. Kalimat 3 beri opsi aksi yang proporsional untuk stok atau belanja, dengan bahasa pertimbangan yang tetap tegas.",
   "offer": "satu kalimat pendek ajakan konsultasi stok/modal"
-}
+}}
 
 Gaya harus seperti analis bisnis UMKM: natural, tajam, tidak kaku, tidak seperti
 template. Jangan menjelaskan proses model. Jangan memakai format titik dua.
 Jangan menulis disclaimer seperti "ini hanya prediksi", "bukan kepastian pasar",
 atau "perlu diingat"; disclaimer sudah ditampilkan terpisah di UI. Jangan
 menyuruh user membeli secara mutlak. Jika ingin menulis "Perlu diingat", hapus
-kalimat itu dan ganti dengan insight aksi yang lebih berguna.
+kalimat itu dan ganti dengan insight aksi yang lebih berguna.{accuracy_warning}
 """
 
     try:
@@ -411,24 +423,39 @@ def build_chat_reply(
             "source": "rule_based",
         }
 
+    commodity = payload.get("commodity") or {}
+    commodity_slug = commodity.get("slug") or "cabai-rawit-merah"
+    commodity_name = commodity.get("display_name") or "Cabai Rawit Merah"
+
+    accuracy_warning = ""
+    if commodity_slug != "cabai-rawit-merah":
+        accuracy_warning = (
+            f"\n\nCATATAN KHUSUS UNTUK AI: Model prediksi untuk komoditas {commodity_name} "
+            "ini memiliki tingkat akurasi (Directional Accuracy / MAE) yang masih relatif rendah "
+            "dibandingkan komoditas utama (Cabai Rawit Merah). Harap selalu ingatkan pengguna secara halus "
+            "dan berikan pertimbangan agar mereka lebih berhati-hati dalam mengambil keputusan pengadaan "
+            "berdasarkan proyeksi komoditas ini."
+        )
+
     prompt = (
         _forecast_context_for_prompt(payload, business_profile)
         + "\n\n"
         + _chat_history_context(chat_history)
         + "\n\nPertanyaan user:\n"
         + question
-        + "\n\nJawab langsung sebagai konsultan UMKM. Jika pertanyaan di luar domain "
-        + "Narapangan, tolak singkat dan arahkan kembali ke topik prediksi harga cabai, "
-        + "stok, pembelian, atau strategi UMKM. Jika pertanyaan relevan, gunakan angka "
-        + "forecast dan profil UMKM di atas. Jawab seperti chat konsultasi bisnis, "
-        + "bukan template laporan. Gunakan 2-4 kalimat pendek atau maksimal 3 bullet "
-        + "pendek. Boleh pakai **tebal** atau *miring* hanya untuk angka atau istilah "
-        + "yang benar-benar penting. Jangan pakai heading atau label kaku seperti "
-        + "'Strategi:' dan 'Rekomendasi:'. Jangan menggantung di tengah kalimat. "
-        + "Jangan menyebut nama arsitektur model teknis. Jawaban harus berupa "
-        + "pertimbangan berbasis prediksi, bukan instruksi mutlak untuk membeli. "
-        + "Jika pertanyaan user merujuk jawaban sebelumnya, gunakan riwayat sesi "
-        + "untuk menjaga konteks."
+        + f"\n\nJawab langsung sebagai konsultan UMKM. Jika pertanyaan di luar domain "
+        + f"Narapangan, tolak singkat dan arahkan kembali ke topik prediksi harga {commodity_name.lower()}, "
+        + f"stok, pembelian, atau strategi UMKM. Jika pertanyaan relevan, gunakan angka "
+        + f"forecast dan profil UMKM di atas. Jawab seperti chat konsultasi bisnis, "
+        + f"bukan template laporan. Gunakan 2-4 kalimat pendek atau maksimal 3 bullet "
+        + f"pendek. Boleh pakai **tebal** atau *miring* hanya untuk angka atau istilah "
+        + f"yang benar-benar penting. Jangan pakai heading atau label kaku seperti "
+        + f"'Strategi:' dan 'Rekomendasi:'. Jangan menggantung di tengah kalimat. "
+        + f"Jangan menyebut nama arsitektur model teknis. Jawaban harus berupa "
+        + f"pertimbangan berbasis prediksi, bukan instruksi mutlak untuk membeli. "
+        + f"Jika pertanyaan user merujuk jawaban sebelumnya, gunakan riwayat sesi "
+        + f"untuk menjaga konteks."
+        + accuracy_warning
     )
 
     try:

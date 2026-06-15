@@ -8,15 +8,15 @@ const STEPS = [
   },
   {
     title: "Mengunduh data harga pasar",
-    desc: "Mengambil harga cabai rawit merah terbaru dari Pasar Bandung",
+    desc: "Mengambil harga komoditas terbaru dari Pasar Bandung",
   },
   {
     title: "Mempersiapkan dataset",
     desc: "Mengolah fitur ekonomi, kalender, dan musiman sebagai input model",
   },
   {
-    title: "Menjalankan model NBEATSx",
-    desc: "Memprediksi harga 4 minggu ke depan dengan neural network",
+    title: "Menjalankan model peramalan",
+    desc: "Memprediksi harga 4 minggu ke depan",
   },
   {
     title: "Menganalisis tren & risiko",

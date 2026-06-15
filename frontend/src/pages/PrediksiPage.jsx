@@ -94,6 +94,8 @@ export function PrediksiPage() {
     ? new Date(payload.saved_at).toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' })
     : "";
 
+  const isChili = payload?.commodity?.slug === "cabai-rawit-merah" || summary.commodity === "Cabai Rawit Merah";
+
   return (
     <div className="page-container">
       
@@ -130,6 +132,14 @@ export function PrediksiPage() {
           <button className="demo-mode-btn" onClick={() => setIsOnboardingOpen(true)}>
             Mulai Atur Profil Usaha
           </button>
+        </div>
+      )}
+
+      {!isChili && (
+        <div className="demo-mode-banner" style={{ background: "rgba(245, 158, 11, 0.1)", border: "1px solid rgba(245, 158, 11, 0.3)" }}>
+          <p className="demo-mode-text" style={{ color: "#d97706" }}>
+            ⚠️ <strong>Akurasi Model Terbatas</strong> — Model prediksi untuk komoditas <strong>{commodityName}</strong> ini masih dalam tahap awal pengembangan dan memiliki tingkat akurasi yang lebih rendah dibandingkan model utama (Cabai Rawit Merah). Gunakan proyeksi ini dengan lebih berhati-hati.
+          </p>
         </div>
       )}
 

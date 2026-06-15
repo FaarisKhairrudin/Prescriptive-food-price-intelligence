@@ -51,9 +51,10 @@ export function AIConsultSection({ payload, businessProfile }) {
   }
 
   const summary = payload?.summary;
+  const commodityName = payload?.commodity?.display_name || payload?.summary?.commodity || "Cabai Rawit Merah";
   const pctText = summary ? `${Math.abs(summary.pct_change_avg).toFixed(1)}%` : "";
   const greeting = summary
-    ? `Selamat siang, ${userName}. Berdasarkan prediksi minggu ini, harga cabai rawit merah di Bandung diperkirakan ${summary.pct_change_avg >= 0 ? "naik" : "turun"} ${pctText} pekan depan. Ada yang ingin Anda diskusikan?`
+    ? `Selamat siang, ${userName}. Berdasarkan prediksi minggu ini, harga ${commodityName.toLowerCase()} di Bandung diperkirakan ${summary.pct_change_avg >= 0 ? "naik" : "turun"} ${pctText} pekan depan. Ada yang ingin Anda diskusikan?`
     : "Selamat siang! Jalankan prediksi terlebih dahulu agar saya bisa membantu Anda.";
 
   return (
@@ -104,7 +105,7 @@ export function AIConsultSection({ payload, businessProfile }) {
           <form className="ai-chat-form" onSubmit={handleSend}>
             <input
               className="ai-chat-input"
-              placeholder="Tanya strategi stok cabai…"
+              placeholder={`Tanya strategi stok ${commodityName.toLowerCase()}…`}
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
             />

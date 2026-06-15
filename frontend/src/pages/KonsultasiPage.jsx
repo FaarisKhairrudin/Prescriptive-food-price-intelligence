@@ -126,8 +126,9 @@ export function KonsultasiPage() {
   }
 
   const summary = payload?.summary;
+  const commodityName = payload?.commodity?.display_name || payload?.summary?.commodity || "Cabai Rawit Merah";
   const greeting = summary
-    ? `Selamat siang, ${userName}. Berdasarkan prediksi minggu ini, harga cabai rawit merah di Bandung diperkirakan ${summary.pct_change_avg >= 0 ? "naik" : "turun"} ${Math.abs(summary.pct_change_avg).toFixed(1)}% pekan depan. Ada yang ingin Anda diskusikan?`
+    ? `Selamat siang, ${userName}. Berdasarkan prediksi minggu ini, harga ${commodityName.toLowerCase()} di Bandung diperkirakan ${summary.pct_change_avg >= 0 ? "naik" : "turun"} ${Math.abs(summary.pct_change_avg).toFixed(1)}% pekan depan. Ada yang ingin Anda diskusikan?`
     : "Selamat siang! Jalankan prediksi terlebih dahulu agar saya bisa memberikan saran yang lebih akurat.";
 
   function formatTimeAgo(ts) {
@@ -241,7 +242,7 @@ export function KonsultasiPage() {
         <form className="chat-form" onSubmit={handleSend}>
           <input
             className="chat-input"
-            placeholder="Tanya strategi pengadaan cabai…"
+            placeholder={`Tanya strategi pengadaan ${commodityName.toLowerCase()}…`}
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
           />

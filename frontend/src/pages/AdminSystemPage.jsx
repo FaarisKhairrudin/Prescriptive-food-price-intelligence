@@ -547,7 +547,7 @@ export function AdminSystemPage() {
                 <span className="metric-mini-value">{stats.active_users}</span>
               </div>
               <div className="metric-mini-card">
-                <span className="metric-mini-label">Harga Cabai</span>
+                <span className="metric-mini-label">Data Harga</span>
                 <span className="metric-mini-value">{stats.price_records}</span>
               </div>
               <div className="metric-mini-card">
