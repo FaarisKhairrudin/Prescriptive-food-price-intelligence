@@ -64,16 +64,24 @@ export function buildChartData(history, forecast) {
     });
   }
 
-  // Add forecast data points — first forecast connects to last actual
+  // Start the forecast line from the final historical point so both series meet.
   if (forecast && forecast.length > 0) {
-    const lastActual = history && history.length > 0 ? history[history.length - 1].actual_price : null;
+    const lastHistory = history && history.length > 0 ? history[history.length - 1] : null;
+    const lastActual = lastHistory ? lastHistory.actual_price : null;
 
-    forecast.forEach((f, i) => {
+    if (lastHistory && lastActual != null) {
+      const lastRow = rows[rows.length - 1];
+      if (lastRow && lastRow.date === lastHistory.ds) {
+        lastRow.forecast = lastActual;
+      }
+    }
+
+    forecast.forEach((f) => {
       const d = new Date(f.ds);
       rows.push({
         date: f.ds,
         label: `${d.getDate()} ${monthNames[d.getMonth()]}`,
-        actual: i === 0 ? lastActual : null,  // bridge point
+        actual: null,
         forecast: f.predicted_price,
       });
     });

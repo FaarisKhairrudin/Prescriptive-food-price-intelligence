@@ -791,6 +791,43 @@ def load_payload_from_cache() -> dict | None:
         print(f"[CACHE] Error reading payload from cache: {e}")
         return None
 
+def _price_rows_to_weekly_train_df(price_rows) -> pd.DataFrame:
+    """
+    Converts cached daily price rows into the same weekly shape used by inference.
+    """
+
+    price_df = pd.DataFrame(
+        [
+            {
+                "Tanggal": pd.to_datetime(row["date"]),
+                TARGET: float(row["price_per_kg"]),
+            }
+            for row in price_rows
+        ]
+    )
+    if price_df.empty:
+        return pd.DataFrame(columns=["unique_id", "ds", "y"])
+
+    last_daily_date = price_df["Tanggal"].max().normalize()
+    weekly = (
+        price_df
+        .set_index("Tanggal")
+        .resample(FREQ)
+        .mean(numeric_only=True)
+        .reset_index()
+        .rename(columns={"Tanggal": "ds", TARGET: "y"})
+    )
+    weekly = (
+        weekly[weekly["ds"] <= last_daily_date]
+        .dropna(subset=["y"])
+        .sort_values("ds")
+        .tail(52)
+        .reset_index(drop=True)
+    )
+    weekly["unique_id"] = UNIQUE_ID
+
+    return weekly[["unique_id", "ds", "y"]]
+
 def reconstruct_web_payload_from_db(forecast_date: str | None = None) -> dict | None:
     """
     Reconstructs the full web payload from SQLite database tables (prices, forecasts)
@@ -823,15 +860,10 @@ def reconstruct_web_payload_from_db(forecast_date: str | None = None) -> dict | 
             conn.close()
             return None
 
-        # Build train_df representation
-        train_data = []
-        for r in price_rows:
-            train_data.append({
-                "unique_id": UNIQUE_ID,
-                "ds": pd.to_datetime(r["date"]),
-                "y": float(r["price_per_kg"])
-            })
-        train_df = pd.DataFrame(train_data)
+        train_df = _price_rows_to_weekly_train_df(price_rows)
+        if train_df.empty:
+            conn.close()
+            return None
 
         # 2. Fetch forecasts
         cursor.execute("""
