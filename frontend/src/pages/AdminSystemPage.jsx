@@ -135,8 +135,8 @@ export function AdminSystemPage() {
           return {
             date: formattedDate,
             "Harga Proyeksi": pt.predicted_price,
-            "Harga Aktual": pt.actual_price,
-            Error: Math.round(pt.error_pct * 1000) / 10
+            "Harga Aktual": pt.actual_price ?? null,
+            Error: pt.error_pct == null ? null : Math.round(pt.error_pct * 1000) / 10
           };
         });
       setChartData(sortedHistory);
@@ -207,6 +207,12 @@ export function AdminSystemPage() {
     { key: "payload", label: "Assembling Payload" },
     { key: "cache", label: "Updating Cache" }
   ];
+
+  const formatAuditTooltip = (value, name) => {
+    if (value == null) return ["Belum tersedia", name];
+    if (name === "Error") return [`${value}%`, name];
+    return [formatRp(value), name];
+  };
 
   return (
     <div className="page-container">
@@ -565,15 +571,23 @@ export function AdminSystemPage() {
               <div className="metric-mini-grid" style={{ marginBottom: 12 }}>
                 <div className="metric-mini-card">
                   <span className="metric-mini-label">MAE (Error Riil)</span>
-                  <span className="metric-mini-value" style={{ fontSize: 15 }}>{formatRp(accuracy.mae)}</span>
+                  <span className="metric-mini-value" style={{ fontSize: 15 }}>
+                    {accuracy.n_points > 0 ? formatRp(accuracy.mae) : "-"}
+                  </span>
                 </div>
                 <div className="metric-mini-card">
                   <span className="metric-mini-label">MAPE (Persentase)</span>
-                  <span className="metric-mini-value" style={{ fontSize: 15 }}>{(accuracy.mape * 100).toFixed(2)}%</span>
+                  <span className="metric-mini-value" style={{ fontSize: 15 }}>
+                    {accuracy.n_points > 0 ? `${(accuracy.mape * 100).toFixed(2)}%` : "-"}
+                  </span>
                 </div>
               </div>
               <div style={{ fontSize: 12, color: "var(--muted)", textAlign: "center" }}>
-                Dihitung langsung dari <strong>{accuracy.n_points}</strong> titik data historis vs prediksi (Pasar Caringin).
+                {accuracy.n_points > 0 ? (
+                  <>Dihitung langsung dari <strong>{accuracy.n_points}</strong> titik data historis vs prediksi (Pasar Caringin).</>
+                ) : (
+                  <>Harga aktual untuk target forecast terbaru belum tersedia.</>
+                )}
               </div>
             </div>
           ) : (
@@ -707,7 +721,7 @@ export function AdminSystemPage() {
                       borderRadius: "10px",
                       boxShadow: "0 4px 20px rgba(0,0,0,0.08)"
                     }}
-                    formatter={(value, name) => [name === "Error" ? `${value}%` : formatRp(value), name]}
+                    formatter={formatAuditTooltip}
                   />
                   <Legend verticalAlign="top" height={36} iconType="circle" />
                   <Line
@@ -738,7 +752,9 @@ export function AdminSystemPage() {
             )}
           </div>
           <div style={{ marginTop: 12, fontSize: 11, color: "var(--muted)", textAlign: "center" }}>
-            Membandingkan nilai proyeksi model 1 minggu ke depan vs realisasi harga pasar yang diinput PIHPS.
+            {accuracy?.n_points > 0
+              ? "Membandingkan nilai proyeksi model 1 minggu ke depan vs realisasi harga pasar yang diinput PIHPS."
+              : "Menampilkan proyeksi terbaru; harga aktual PIHPS akan muncul saat tanggal target tersedia."}
           </div>
         </div>
       </div>

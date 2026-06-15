@@ -111,12 +111,21 @@ def build_daily_dataset(
     conn = get_connection()
     cursor = conn.cursor()
 
-    # Cek apakah data untuk end_date sudah pernah di-crawl hari ini
-    cursor.execute("SELECT COUNT(*) FROM crawls WHERE run_date = ?", (end_date,))
-    already_crawled = cursor.fetchone()[0] > 0
+    # Cache is usable only when the stored price series really reaches end_date.
+    cursor.execute("""
+        SELECT MAX(date)
+        FROM prices
+        WHERE commodity = 'Cabai Rawit Merah'
+          AND market = 'Pasar Caringin'
+          AND date <= ?
+    """, (end_date,))
+    latest_cached_price_date = cursor.fetchone()[0]
+    cache_covers_end_date = bool(
+        latest_cached_price_date and latest_cached_price_date >= end_date
+    )
     conn.close()
 
-    if already_crawled:
+    if cache_covers_end_date:
         if run_id:
             update_pipeline_stage(run_id, "scraping", "success")
             update_pipeline_stage(run_id, "weather", "success")
@@ -152,8 +161,10 @@ def build_daily_dataset(
 
     # Simpan ke database
     conn = get_connection()
+    latest_price_date = None
     for _, row in df_price.iterrows():
         dt_str = pd.to_datetime(row["tanggal"]).strftime("%Y-%m-%d")
+        latest_price_date = max(latest_price_date or dt_str, dt_str)
         conn.execute("""
             INSERT OR REPLACE INTO prices (date, commodity, market, price_per_kg)
             VALUES (?, 'Cabai Rawit Merah', 'Pasar Caringin', ?)
@@ -180,12 +191,14 @@ def build_daily_dataset(
             VALUES (?, ?, ?, ?)
         """, (dt_str, _safe_float(row["Garut_PRECTOTCORR"]), _safe_float(row["Garut_T2M"]), _safe_float(row["Garut_RH2M"])))
     
-    # Catat bahwa crawl untuk end_date telah dilakukan hari ini
+    # Record the latest date actually covered by the source, not the requested
+    # end_date, so stale intraday PIHPS data can be retried later.
     now_ts = int(datetime.now().timestamp())
-    conn.execute("""
-        INSERT OR REPLACE INTO crawls (run_date, timestamp)
-        VALUES (?, ?)
-    """, (end_date, now_ts))
+    if latest_price_date:
+        conn.execute("""
+            INSERT OR REPLACE INTO crawls (run_date, timestamp)
+            VALUES (?, ?)
+        """, (latest_price_date, now_ts))
     
     conn.commit()
     conn.close()

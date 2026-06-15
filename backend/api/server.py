@@ -20,11 +20,15 @@ from backend.pipeline.main_pipeline import (
     save_payload_to_cache,
     reconstruct_web_payload_from_db
 )
-<<<<<<< HEAD
-from backend.database import get_connection, create_pipeline_run, update_pipeline_stage, complete_pipeline_run, DATABASE_PATH
-=======
-from backend.database import get_connection, init_db
->>>>>>> 5a803509f60323def3096afcc49b0fe6661be963
+
+from backend.database import (
+    DATABASE_PATH,
+    complete_pipeline_run,
+    create_pipeline_run,
+    get_connection,
+    init_db,
+    update_pipeline_stage,
+)
 from backend.api.auth import verify_password, create_token, verify_token
 
 
@@ -587,24 +591,24 @@ class NarapanganHandler(BaseHTTPRequestHandler):
             try:
                 conn = get_connection()
                 cursor = conn.cursor()
-                
+
                 # Fetch active run
                 cursor.execute("""
                     SELECT id, run_date, trigger_type, start_time, duration_seconds, status,
                            stage_scraping, stage_scraping_time, stage_weather, stage_weather_time,
                            stage_feat_eng, stage_feat_eng_time, stage_forecast, stage_forecast_time,
                            stage_payload, stage_payload_time, stage_cache, stage_cache_time, error_message
-                    FROM pipeline_runs 
-                    WHERE status = 'running' 
+                    FROM pipeline_runs
+                    WHERE status = 'running'
                     ORDER BY id DESC LIMIT 1
                 """)
                 active_row = cursor.fetchone()
-                
+
                 active_run = None
                 if active_row:
                     start_ts = datetime.fromisoformat(active_row["start_time"])
                     elapsed = (datetime.now() - start_ts).total_seconds()
-                    
+
                     active_run = {
                         "id": active_row["id"],
                         "run_date": active_row["run_date"],
@@ -622,16 +626,16 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                         },
                         "error_message": active_row["error_message"]
                     }
-                
+
                 # Fetch recent runs
                 cursor.execute("""
                     SELECT id, run_date, trigger_type, start_time, end_time, duration_seconds, status, error_message
-                    FROM pipeline_runs 
+                    FROM pipeline_runs
                     ORDER BY id DESC LIMIT 20
                 """)
                 recent_rows = cursor.fetchall()
                 conn.close()
-                
+
                 recent_runs = []
                 for row in recent_rows:
                     if active_run and row["id"] == active_run["id"]:
@@ -646,7 +650,7 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                         "status": row["status"],
                         "error_message": row["error_message"]
                     })
-                    
+
                 self._send_json(200, {
                     "active_run": active_run,
                     "recent_runs": recent_runs
@@ -665,39 +669,39 @@ class NarapanganHandler(BaseHTTPRequestHandler):
             try:
                 conn = get_connection()
                 cursor = conn.cursor()
-                
+
                 # 1. Total users
                 cursor.execute("SELECT COUNT(*) FROM users")
                 total_users = cursor.fetchone()[0]
-                
+
                 # 2. Active users (not blocked and not deleted)
                 cursor.execute("SELECT COUNT(*) FROM users WHERE is_blocked = 0 AND deleted_at IS NULL AND is_admin = 0")
                 active_users = cursor.fetchone()[0]
-                
+
                 # 3. Blocked users
                 cursor.execute("SELECT COUNT(*) FROM users WHERE is_blocked = 1 AND deleted_at IS NULL")
                 blocked_users = cursor.fetchone()[0]
-                
+
                 # 4. Deleted users
                 cursor.execute("SELECT COUNT(*) FROM users WHERE deleted_at IS NOT NULL")
                 deleted_users = cursor.fetchone()[0]
-                
+
                 # 5. Price records
                 cursor.execute("SELECT COUNT(*) FROM prices")
                 price_records = cursor.fetchone()[0]
-                
+
                 # 6. Weather records
                 cursor.execute("SELECT COUNT(*) FROM weather")
                 weather_records = cursor.fetchone()[0]
-                
+
                 # 7. Forecast records
                 cursor.execute("SELECT COUNT(*) FROM forecasts")
                 forecast_records = cursor.fetchone()[0]
-                
+
                 # 8. Latest crawl date
                 cursor.execute("SELECT MAX(run_date) FROM crawls")
                 latest_crawl_date = cursor.fetchone()[0] or "Belum ada"
-                
+
                 # 9. Latest forecast date
                 cursor.execute("SELECT MAX(forecast_date) FROM forecasts")
                 latest_forecast_date = cursor.fetchone()[0] or "Belum ada"
@@ -711,14 +715,14 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                 # Health Indicators (Simple logic)
                 import os
                 cache_exists = os.path.exists(str(DATABASE_PATH.parent / "backend" / "data_cache" / "latest_payload.json"))
-                
+
                 forecast_health = {"status": "healthy", "message": "Proyeksi terisi"}
                 pipeline_health = {"status": "healthy", "message": "Pipeline siap"}
                 cache_health = {"status": "healthy", "message": "latest_payload.json valid" if cache_exists else "Cache kosong"}
 
                 if latest_forecast_date == "Belum ada":
                     forecast_health = {"status": "critical", "message": "Belum ada data peramalan"}
-                
+
                 if not cache_exists:
                     cache_health = {"status": "warning", "message": "Cache file tidak ditemukan"}
 
@@ -756,9 +760,9 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                 conn = get_connection()
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT id, email, is_admin, is_blocked, deleted_at, last_login, business_type, 
-                           daily_usage_kg, stock_days, storage_capacity_kg, buying_style, can_adjust_price, created_at 
-                    FROM users 
+                    SELECT id, email, is_admin, is_blocked, deleted_at, last_login, business_type,
+                           daily_usage_kg, stock_days, storage_capacity_kg, buying_style, can_adjust_price, created_at
+                    FROM users
                     ORDER BY id ASC
                 """)
                 rows = cursor.fetchall()
@@ -799,25 +803,25 @@ class NarapanganHandler(BaseHTTPRequestHandler):
             try:
                 conn = get_connection()
                 cursor = conn.cursor()
-                
+
                 # Commodity Data info
                 cursor.execute("SELECT MAX(date), COUNT(*) FROM prices WHERE commodity = 'Cabai Rawit Merah'")
                 row_comm = cursor.fetchone()
                 latest_price_date = row_comm[0] or "Belum ada"
                 price_count = row_comm[1]
-                
+
                 # Weather Data info
                 cursor.execute("SELECT MAX(date), COUNT(*) FROM weather")
                 row_weath = cursor.fetchone()
                 latest_weather_date = row_weath[0] or "Belum ada"
                 weather_count = row_weath[1]
-                
+
                 # Forecast info
                 cursor.execute("SELECT MAX(forecast_date), COUNT(DISTINCT forecast_date) FROM forecasts")
                 row_fore = cursor.fetchone()
                 latest_forecast_date = row_fore[0] or "Belum ada"
                 forecast_count = row_fore[1]
-                
+
                 conn.close()
 
                 import os
@@ -831,7 +835,7 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                     cache_age = int(time.time() - os.path.getmtime(str(cache_payload_path)))
 
                 warnings = []
-                
+
                 comm_status = "healthy"
                 if latest_price_date != "Belum ada":
                     try:
@@ -909,13 +913,21 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                 conn = get_connection()
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT 
-                        f.forecast_date, 
-                        f.target_date, 
-                        f.predicted_price, 
+                    SELECT
+                        f.forecast_date,
+                        f.target_date,
+                        f.predicted_price,
                         p.price_per_kg AS actual_price
                     FROM forecasts f
-                    JOIN prices p ON f.target_date = p.date AND p.commodity = 'Cabai Rawit Merah' AND p.market = 'Pasar Caringin'
+                    LEFT JOIN prices p ON f.target_date = p.date
+                        AND p.commodity = 'Cabai Rawit Merah'
+                        AND p.market = 'Pasar Caringin'
+                    WHERE f.forecast_date = (
+                        SELECT MAX(forecast_date)
+                        FROM forecasts
+                        WHERE model_version = 'NBEATSx'
+                    )
+                    AND f.model_version = 'NBEATSx'
                     ORDER BY f.target_date DESC
                 """)
                 rows = cursor.fetchall()
@@ -925,21 +937,22 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                 total_absolute_error = 0.0
                 total_absolute_percentage_error = 0.0
                 squared_errors_sum = 0.0
-                n = len(rows)
+                n = 0
 
                 for row in rows:
                     pred = row["predicted_price"]
                     actual = row["actual_price"]
-                    err = pred - actual
-                    abs_err = abs(err)
-                    
-                    # Prevent division by zero
-                    ape = abs_err / actual if actual > 0 else 0.0
-                    se = err ** 2
-                    
-                    total_absolute_error += abs_err
-                    total_absolute_percentage_error += ape
-                    squared_errors_sum += se
+                    ape = None
+                    if actual is not None and actual > 0:
+                        err = pred - actual
+                        abs_err = abs(err)
+                        ape = abs_err / actual
+                        se = err ** 2
+
+                        total_absolute_error += abs_err
+                        total_absolute_percentage_error += ape
+                        squared_errors_sum += se
+                        n += 1
 
                     history.append({
                         "forecast_date": row["forecast_date"],
@@ -1104,7 +1117,7 @@ class NarapanganHandler(BaseHTTPRequestHandler):
             try:
                 body = self._read_json()
                 email = str(body.get("email") or "google-user@gmail.com").strip().lower()
-                
+
                 conn = get_connection()
                 cursor = conn.cursor()
                 cursor.execute(
@@ -1140,7 +1153,7 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                         conn.close()
                         self._send_json(403, {"error": "Akun Anda telah dinonaktifkan oleh administrator."})
                         return
-                        
+
                     user_id = row["id"]
                     is_admin = bool(row["is_admin"])
                     profile = {
@@ -1151,7 +1164,7 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                         "buying_style": row["buying_style"] or "Aman stok",
                         "can_adjust_price": row["can_adjust_price"] or "Sulit naik harga"
                     }
-                
+
                 # Update last login time
                 now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 cursor.execute("UPDATE users SET last_login = ? WHERE id = ?", (now_str, user_id))
@@ -1262,14 +1275,14 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                     return
 
                 cursor.execute("UPDATE users SET is_blocked = ? WHERE id = ?", (1 if block_flag else 0, target_user_id))
-                
+
                 # Write to audit logs
                 action_str = "block_user" if block_flag else "unblock_user"
                 cursor.execute("""
                     INSERT INTO audit_logs (admin_id, action, target, details)
                     VALUES (?, ?, ?, ?)
                 """, (admin_data["user_id"], action_str, f"user_id={target_user_id}", f"Admin updated block status of {user_row['email']} to {block_flag}"))
-                
+
                 conn.commit()
                 conn.close()
 
@@ -1310,13 +1323,13 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                 # Perform soft-delete: set deleted_at
                 now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 cursor.execute("UPDATE users SET deleted_at = ? WHERE id = ?", (now_str, target_user_id))
-                
+
                 # Write to audit logs
                 cursor.execute("""
                     INSERT INTO audit_logs (admin_id, action, target, details)
                     VALUES (?, ?, ?, ?)
                 """, (admin_data["user_id"], "soft_delete_user", f"user_id={target_user_id}", f"Admin soft-deleted user {user_row['email']}"))
-                
+
                 conn.commit()
                 conn.close()
 
@@ -1348,19 +1361,19 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                 # Log that manual pipeline is run
                 conn = get_connection()
                 cursor = conn.cursor()
-                
+
                 # We target today's date for manual execution
                 run_date_str = datetime.now().strftime("%Y-%m-%d")
-                
+
                 # Create pipeline runs entry
                 run_id = create_pipeline_run("manual", run_date_str)
-                
+
                 # Audit log
                 cursor.execute("""
                     INSERT INTO audit_logs (admin_id, action, target, details)
                     VALUES (?, 'run_pipeline_manual', ?, ?)
                 """, (admin_data["user_id"], f"pipeline_run_id={run_id}", f"Admin triggered manual pipeline run for date {run_date_str}"))
-                
+
                 conn.commit()
                 conn.close()
 
@@ -1369,14 +1382,14 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                     try:
                         print(f"[run-pipeline] Starting manual pipeline run for run_id={run_id_val}")
                         pipeline_result = run_narapangan_pipeline(headless=True, run_id=run_id_val)
-                        
+
                         # Payload creation stage
                         update_pipeline_stage(run_id_val, "payload", "success")
                         update_pipeline_stage(run_id_val, "cache", "running")
-                        
+
                         p = build_web_payload(pipeline_result)
                         save_payload_to_cache(p)
-                        
+
                         # Cache update stage & Complete run
                         update_pipeline_stage(run_id_val, "cache", "success")
                         complete_pipeline_run(run_id_val, "success")
@@ -1440,7 +1453,7 @@ class NarapanganHandler(BaseHTTPRequestHandler):
 
             # 1. Try loading from cache file
             payload = load_payload_from_cache()
-            
+
             if payload:
                 print("[predict] Cache hit: Loaded from latest_payload.json")
             else:
@@ -1459,7 +1472,7 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                             already_running = True
                         else:
                             IS_PIPELINE_RUNNING = True
-                    
+
                     if already_running:
                         print("[predict] Pipeline is already running in background.")
                         self._send_json(202, {
@@ -1485,7 +1498,7 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                         import threading
                         t = threading.Thread(target=run_pipeline_async, daemon=True)
                         t.start()
-                        
+
                         self._send_json(202, {
                             "status": "generating",
                             "message": "Analisis harga baru sedang diproses..."
@@ -1572,12 +1585,12 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                     session_id = str(session_id)
                 else:
                     session_id = str(int(time.time() * 1000))
-                
+
                 conn = get_connection()
                 cursor = conn.cursor()
                 cursor.execute("SELECT COUNT(*) FROM chat_sessions WHERE id = ? AND user_id = ?", (session_id, user_data["user_id"]))
                 exists = cursor.fetchone()[0] > 0
-                
+
                 now_ts = int(time.time() * 1000)
                 if not exists:
                     title = question[:30] + ("..." if len(question) > 30 else "")
@@ -1590,7 +1603,7 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                         "UPDATE chat_sessions SET updated_at = ? WHERE id = ? AND user_id = ?",
                         (now_ts, session_id, user_data["user_id"])
                     )
-                
+
                 # User message
                 cursor.execute(
                     "INSERT INTO chat_messages (session_id, role, message_text, source, timestamp) VALUES (?, 'user', ?, NULL, ?)",
@@ -1653,14 +1666,22 @@ def run_scheduler_loop():
     while True:
         try:
             today_str = datetime.now().strftime("%Y-%m-%d")
-            
-            # Check crawls table in SQLite
+
+            # Check whether PIHPS prices actually cover today. A crawl marker can
+            # be stale when PIHPS has not published today's price yet.
             conn = get_connection()
             cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM crawls WHERE run_date = ?", (today_str,))
-            already_run = cursor.fetchone()[0] > 0
+            cursor.execute("""
+                SELECT MAX(date)
+                FROM prices
+                WHERE commodity = 'Cabai Rawit Merah'
+                  AND market = 'Pasar Caringin'
+                  AND date <= ?
+            """, (today_str,))
+            latest_price_date = cursor.fetchone()[0]
             conn.close()
-            
+            already_run = bool(latest_price_date and latest_price_date >= today_str)
+
             if not already_run:
                 print(f"[SERVER-SCHEDULER] Forecast for today ({today_str}) is missing. Launching pipeline update in background...")
                 try:
@@ -1684,16 +1705,12 @@ def run_scheduler_loop():
 
 
 def run_server(host: str = HOST, port: int = PORT):
-<<<<<<< HEAD
     # Initialize/migrate database first
     from backend.database import init_db
     try:
         init_db()
     except Exception as db_e:
         print(f"[SERVER-STARTUP] Database initialization failed: {db_e}")
-=======
-    init_db()
->>>>>>> 5a803509f60323def3096afcc49b0fe6661be963
 
     # Spawn background scheduler loop
     import threading
