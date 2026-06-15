@@ -4,7 +4,14 @@ import { readStored, writeStored, isTokenExpired } from "../utils/helpers";
 
 const AppContext = createContext();
 
+function payloadStorageKey(commodity) {
+  return commodity === "cabai-rawit-merah" ? PAYLOAD_KEY : `${PAYLOAD_KEY}:${commodity}`;
+}
+
 export function AppProvider({ children }) {
+  const [selectedCommodity, setSelectedCommodityState] = useState(() => (
+    localStorage.getItem("narapangan:v2:commodity") || "cabai-rawit-merah"
+  ));
   const [token, setToken] = useState(() => {
     const t = localStorage.getItem("narapangan:v2:token") || "";
     if (t && isTokenExpired(t)) {
@@ -38,7 +45,7 @@ export function AppProvider({ children }) {
     if (localStorage.getItem("narapangan:v2:auth")) {
       localStorage.removeItem("narapangan:v2:auth");
     }
-    const cached = readStored(PAYLOAD_KEY);
+    const cached = readStored(payloadStorageKey(selectedCommodity));
     if (cached) {
       setPayload(cached);
     }
@@ -54,7 +61,14 @@ export function AppProvider({ children }) {
       setUser(null);
       setIsOnboardingOpen(false);
     }
-  }, [token]);
+  }, [token, selectedCommodity]);
+
+  function setSelectedCommodity(commodity) {
+    localStorage.setItem("narapangan:v2:commodity", commodity);
+    setSelectedCommodityState(commodity);
+    const cached = readStored(payloadStorageKey(commodity));
+    setPayload(cached || null);
+  }
 
   async function fetchProfileAndPredictions() {
     setStatus("loading");
@@ -99,7 +113,8 @@ export function AppProvider({ children }) {
         headers: { 
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
-        }
+        },
+        body: JSON.stringify({ commodity: selectedCommodity })
       });
 
       if (predictRes.status === 401) {
@@ -118,7 +133,7 @@ export function AppProvider({ children }) {
       
       const enriched = { ...data, saved_at: new Date().toISOString() };
       setPayload(enriched);
-      writeStored(PAYLOAD_KEY, enriched);
+      writeStored(payloadStorageKey(selectedCommodity), enriched);
       setStatus("done");
     } catch (err) {
       setError(err.message);
@@ -143,7 +158,7 @@ export function AppProvider({ children }) {
       writeStored("narapangan:v2:profile", data.profile);
       
       // Clear previous cached payload before loading new user
-      localStorage.removeItem(PAYLOAD_KEY);
+      localStorage.removeItem(payloadStorageKey(selectedCommodity));
       setPayload(null);
       
       setToken(data.token);
@@ -177,7 +192,7 @@ export function AppProvider({ children }) {
       // Reset onboarding tour status for a clean new registration experience
       localStorage.removeItem("narapangan:v2:onboarding_completed");
       
-      localStorage.removeItem(PAYLOAD_KEY);
+      localStorage.removeItem(payloadStorageKey(selectedCommodity));
       setPayload(null);
       
       setToken(data.token);
@@ -210,7 +225,7 @@ export function AppProvider({ children }) {
       writeStored("narapangan:v2:profile", data.profile);
       
       // Clear previous cached payload before loading new user
-      localStorage.removeItem(PAYLOAD_KEY);
+      localStorage.removeItem(payloadStorageKey(selectedCommodity));
       setPayload(null);
 
       // Check if registration was triggered (empty profile)
@@ -237,7 +252,7 @@ export function AppProvider({ children }) {
     localStorage.removeItem("narapangan:v2:token");
     localStorage.removeItem("narapangan:v2:user");
     localStorage.removeItem("narapangan:v2:profile");
-    localStorage.removeItem(PAYLOAD_KEY);
+    localStorage.removeItem(payloadStorageKey(selectedCommodity));
     localStorage.removeItem("narapangan:v2:auth");
     setToken("");
     setUser(null);
@@ -290,7 +305,7 @@ export function AppProvider({ children }) {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
         },
-        body: JSON.stringify(actualSimProps || {})
+        body: JSON.stringify({ ...(actualSimProps || {}), commodity: selectedCommodity })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || data.error || "Gagal mengambil data prediksi.");
@@ -307,7 +322,7 @@ export function AppProvider({ children }) {
       const enriched = { ...data, saved_at: new Date().toISOString() };
       setPayload(enriched);
       if (!isSimUpdate) {
-        writeStored(PAYLOAD_KEY, enriched);
+        writeStored(payloadStorageKey(selectedCommodity), enriched);
       }
       setStatus("done");
     } catch (err) {
@@ -333,7 +348,7 @@ export function AppProvider({ children }) {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
         },
-        body: JSON.stringify(actualSimProps || {})
+        body: JSON.stringify({ ...(actualSimProps || {}), commodity: selectedCommodity })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || data.error || "Pipeline gagal.");
@@ -347,7 +362,7 @@ export function AppProvider({ children }) {
       const enriched = { ...data, saved_at: new Date().toISOString() };
       setPayload(enriched);
       if (!isSimUpdate) {
-        writeStored(PAYLOAD_KEY, enriched);
+        writeStored(payloadStorageKey(selectedCommodity), enriched);
       }
       setStatus("done");
     } catch (err) {
@@ -374,6 +389,8 @@ export function AppProvider({ children }) {
       isAuthenticated,
       user,
       token,
+      selectedCommodity,
+      setSelectedCommodity,
       login,
       logout,
       saveProfile,

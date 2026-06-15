@@ -1,5 +1,16 @@
 export const PAYLOAD_KEY = "narapangan:v2:payload";
 
+export const COMMODITY_OPTIONS = [
+  { value: "cabai-rawit-merah", label: "Cabai Rawit Merah" },
+  { value: "telur-ayam-ras", label: "Telur Ayam Ras" },
+  { value: "bawang-merah", label: "Bawang Merah" },
+  { value: "bawang-putih", label: "Bawang Putih" },
+];
+
+export const MARKET_OPTIONS = [
+  { value: "pasar-caringin", label: "Pasar Caringin" },
+];
+
 export const DEFAULT_PROFILE = {
   business_type: "",
   daily_usage_kg: "",

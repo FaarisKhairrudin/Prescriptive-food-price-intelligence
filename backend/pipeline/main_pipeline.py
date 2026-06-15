@@ -1,13 +1,15 @@
 import pandas as pd
 from pathlib import Path
 from datetime import datetime, timedelta
+from dataclasses import dataclass
+import pickle
 
 try:
-    from .pihps import get_pihps_cabai_rawit_bandung
+    from .pihps import get_pihps_cabai_rawit_bandung, get_pihps_harga_bandung
     from .nasa_weather import get_nasa_weather_garut
     from .hijri_features import generate_hijri_features as _generate_hijri_features
 except ImportError:
-    from pihps import get_pihps_cabai_rawit_bandung
+    from pihps import get_pihps_cabai_rawit_bandung, get_pihps_harga_bandung
     from nasa_weather import get_nasa_weather_garut
     from hijri_features import generate_hijri_features as _generate_hijri_features
 try:
@@ -44,6 +46,11 @@ EXOG_COLS = [
     "is_idul_fitri",
     "is_idul_adha",
 ]
+TELUR_EXOG_COLS = [
+    "is_ramadan",
+    "is_idul_fitri",
+    "is_idul_adha",
+]
 
 MODEL_INPUT_COLUMNS = ["unique_id", "ds", "y"] + EXOG_COLS
 FUTURE_INPUT_COLUMNS = ["unique_id", "ds"] + EXOG_COLS
@@ -55,6 +62,81 @@ HIJRI_COLS = [
 
 SIGNAL_UP_THRESHOLD = 0.05
 SIGNAL_DOWN_THRESHOLD = -0.05
+
+
+@dataclass(frozen=True)
+class CommodityConfig:
+    slug: str
+    commodity: str
+    display_name: str
+    unique_id: str
+    market: str = "Pasar Caringin"
+    price_type_id: int = 1
+    model_dir: Path = DEFAULT_MODEL_DIR
+    model_type: str = "neuralforecast"
+    model_name: str = MODEL_NAME
+    exog_cols: tuple[str, ...] = tuple(EXOG_COLS)
+    use_weather: bool = True
+
+
+COMMODITY_CONFIGS = {
+    "cabai-rawit-merah": CommodityConfig(
+        slug="cabai-rawit-merah",
+        commodity="Cabai Rawit Merah",
+        display_name="Cabai Rawit Merah",
+        unique_id=UNIQUE_ID,
+        model_dir=DEFAULT_MODEL_DIR,
+        model_type="neuralforecast",
+        model_name="NBEATSx",
+        exog_cols=tuple(EXOG_COLS),
+        use_weather=True,
+    ),
+    "bawang-merah": CommodityConfig(
+        slug="bawang-merah",
+        commodity="Bawang Merah",
+        display_name="Bawang Merah",
+        unique_id="bawang_merah_bandung",
+        model_dir=PROJECT_BACKEND_DIR / "narapangan_saved_model" / "bawang_merah_best_model",
+        model_type="neuralforecast",
+        model_name="NBEATSx",
+        exog_cols=tuple(EXOG_COLS),
+        use_weather=True,
+    ),
+    "bawang-putih": CommodityConfig(
+        slug="bawang-putih",
+        commodity="Bawang Putih",
+        display_name="Bawang Putih",
+        unique_id="bawang_putih_bandung",
+        model_dir=PROJECT_BACKEND_DIR / "narapangan_saved_model" / "bawang_putih_best_model",
+        model_type="neuralforecast",
+        model_name="NBEATSx",
+        exog_cols=tuple(EXOG_COLS),
+        use_weather=True,
+    ),
+    "telur-ayam-ras": CommodityConfig(
+        slug="telur-ayam-ras",
+        commodity="Telur Ayam Ras",
+        display_name="Telur Ayam Ras",
+        unique_id="telur_ayam_ras_bandung",
+        model_dir=PROJECT_BACKEND_DIR / "narapangan_saved_model" / "telur_ayam_ras_best_model",
+        model_type="prophet",
+        model_name="Prophet",
+        exog_cols=tuple(TELUR_EXOG_COLS),
+        use_weather=False,
+    ),
+}
+
+
+def get_commodity_config(slug: str | None = None) -> CommodityConfig:
+    key = str(slug or "cabai-rawit-merah").strip().lower()
+    if key not in COMMODITY_CONFIGS:
+        available = ", ".join(COMMODITY_CONFIGS)
+        raise ValueError(f"Komoditas '{slug}' belum didukung. Pilihan: {available}")
+    return COMMODITY_CONFIGS[key]
+
+
+def _model_version(config: CommodityConfig) -> str:
+    return f"{config.model_name}:{config.slug}"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -100,7 +182,8 @@ def build_daily_dataset(
     start_date: str,
     end_date: str,
     headless: bool = True,
-    run_id: int | None = None
+    run_id: int | None = None,
+    config: CommodityConfig | None = None,
 ) -> pd.DataFrame:
     """
     Ambil dan gabungkan:
@@ -108,15 +191,25 @@ def build_daily_dataset(
     - Cuaca Garut dari NASA POWER
     Menggunakan SQLite database sebagai layer persistent cache.
     """
+    config = config or get_commodity_config()
     conn = get_connection()
     cursor = conn.cursor()
 
-    # Cek apakah data untuk end_date sudah pernah di-crawl hari ini
-    cursor.execute("SELECT COUNT(*) FROM crawls WHERE run_date = ?", (end_date,))
-    already_crawled = cursor.fetchone()[0] > 0
+    # Cache is usable only when the stored price series really reaches end_date.
+    cursor.execute("""
+        SELECT MAX(date)
+        FROM prices
+        WHERE commodity = ?
+          AND market = ?
+          AND date <= ?
+    """, (config.commodity, config.market, end_date))
+    latest_cached_price_date = cursor.fetchone()[0]
+    cache_covers_end_date = bool(
+        latest_cached_price_date and latest_cached_price_date >= end_date
+    )
     conn.close()
 
-    if already_crawled:
+    if cache_covers_end_date:
         if run_id:
             update_pipeline_stage(run_id, "scraping", "success")
             update_pipeline_stage(run_id, "weather", "success")
@@ -126,38 +219,43 @@ def build_daily_dataset(
             SELECT p.date AS Tanggal, p.price_per_kg AS Harga, prectotcorr AS Garut_PRECTOTCORR, t2m AS Garut_T2M, rh2m AS Garut_RH2M
             FROM (
                 SELECT date, price_per_kg FROM prices
-                WHERE commodity = 'Cabai Rawit Merah' AND market = 'Pasar Caringin'
+                WHERE commodity = ? AND market = ?
                   AND date >= ? AND date <= ?
             ) p
             LEFT JOIN weather w ON p.date = w.date
             ORDER BY p.date ASC
         """
-        df_daily = pd.read_sql_query(query, conn, params=(start_date, end_date))
+        df_daily = pd.read_sql_query(query, conn, params=(config.commodity, config.market, start_date, end_date))
         conn.close()
 
         if not df_daily.empty:
             df_daily["Tanggal"] = pd.to_datetime(df_daily["Tanggal"])
             return df_daily
 
-    print(f"[DATABASE] Cache miss untuk {end_date}. Mengambil data dari PIHPS dan NASA Weather...")
+    print(f"[DATABASE] Cache miss untuk {config.commodity} {end_date}. Mengambil data PIHPS...")
 
     # 1. PIHPS Price Data
     if run_id:
         update_pipeline_stage(run_id, "scraping", "running")
-    df_price = get_pihps_cabai_rawit_bandung(
+    df_price = get_pihps_harga_bandung(
         start_date=start_date,
         end_date=end_date,
+        komoditas=config.commodity,
+        price_type_id=config.price_type_id,
+        fill_daily=True,
         headless=headless
     )
 
     # Simpan ke database
     conn = get_connection()
+    latest_price_date = None
     for _, row in df_price.iterrows():
         dt_str = pd.to_datetime(row["tanggal"]).strftime("%Y-%m-%d")
+        latest_price_date = max(latest_price_date or dt_str, dt_str)
         conn.execute("""
             INSERT OR REPLACE INTO prices (date, commodity, market, price_per_kg)
-            VALUES (?, 'Cabai Rawit Merah', 'Pasar Caringin', ?)
-        """, (dt_str, _safe_float(row["harga"])))
+            VALUES (?, ?, ?, ?)
+        """, (dt_str, config.commodity, config.market, _safe_float(row["harga"])))
     conn.commit()
     conn.close()
 
@@ -166,10 +264,13 @@ def build_daily_dataset(
         update_pipeline_stage(run_id, "weather", "running")
 
     # 2. NASA Weather Garut
-    df_weather = get_nasa_weather_garut(
-        start_date=start_date,
-        end_date=end_date
-    )
+    if config.use_weather:
+        df_weather = get_nasa_weather_garut(
+            start_date=start_date,
+            end_date=end_date
+        )
+    else:
+        df_weather = pd.DataFrame(columns=["Tanggal", "Garut_PRECTOTCORR", "Garut_T2M", "Garut_RH2M"])
 
     # Simpan ke database
     conn = get_connection()
@@ -180,12 +281,14 @@ def build_daily_dataset(
             VALUES (?, ?, ?, ?)
         """, (dt_str, _safe_float(row["Garut_PRECTOTCORR"]), _safe_float(row["Garut_T2M"]), _safe_float(row["Garut_RH2M"])))
     
-    # Catat bahwa crawl untuk end_date telah dilakukan hari ini
+    # Record the latest date actually covered by the source, not the requested
+    # end_date, so stale intraday PIHPS data can be retried later.
     now_ts = int(datetime.now().timestamp())
-    conn.execute("""
-        INSERT OR REPLACE INTO crawls (run_date, timestamp)
-        VALUES (?, ?)
-    """, (end_date, now_ts))
+    if latest_price_date:
+        conn.execute("""
+            INSERT OR REPLACE INTO crawls (run_date, timestamp)
+            VALUES (?, ?)
+        """, (latest_price_date, now_ts))
     
     conn.commit()
     conn.close()
@@ -199,13 +302,13 @@ def build_daily_dataset(
         SELECT p.date AS Tanggal, p.price_per_kg AS Harga, prectotcorr AS Garut_PRECTOTCORR, t2m AS Garut_T2M, rh2m AS Garut_RH2M
         FROM (
             SELECT date, price_per_kg FROM prices
-            WHERE commodity = 'Cabai Rawit Merah' AND market = 'Pasar Caringin'
+            WHERE commodity = ? AND market = ?
               AND date >= ? AND date <= ?
         ) p
         LEFT JOIN weather w ON p.date = w.date
         ORDER BY p.date ASC
     """
-    df_daily = pd.read_sql_query(query, conn, params=(start_date, end_date))
+    df_daily = pd.read_sql_query(query, conn, params=(config.commodity, config.market, start_date, end_date))
     conn.close()
     
     df_daily["Tanggal"] = pd.to_datetime(df_daily["Tanggal"])
@@ -325,23 +428,31 @@ def preprocess_weekly(
 def build_train_and_future_from_daily(
     bandung_garut: pd.DataFrame,
     hijri_weekly: pd.DataFrame,
-    horizon: int = HORIZON
+    horizon: int = HORIZON,
+    config: CommodityConfig | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Bentuk input NeuralForecast:
     - train_df: histori lengkap dengan y dan 5 fitur eksogen
     - futr_df : 4 minggu ke depan tanpa y, tetapi fitur eksogen wajib lengkap
     """
+    config = config or get_commodity_config()
+    exog_cols = list(config.exog_cols)
+    if not config.use_weather:
+        bandung_garut = bandung_garut.copy()
+        for col in ["Garut_PRECTOTCORR", "Garut_T2M", "Garut_RH2M"]:
+            if col not in bandung_garut.columns:
+                bandung_garut[col] = None
 
     weekly_base = _build_weekly_feature_base(
         bandung_garut=bandung_garut,
         hijri_weekly=hijri_weekly
     )
 
-    weekly_train = _add_weather_lag_features(weekly_base.copy())
+    weekly_train = _add_weather_lag_features(weekly_base.copy()) if config.use_weather else weekly_base.copy()
     train_df = (
         weekly_train
-        .dropna(subset=[TARGET] + EXOG_COLS)
+        .dropna(subset=[TARGET] + exog_cols)
         .reset_index(drop=True)
     )
 
@@ -380,25 +491,26 @@ def build_train_and_future_from_daily(
         ignore_index=True,
         sort=False
     )
-    combined = _add_weather_lag_features(combined)
-    combined["unique_id"] = UNIQUE_ID
+    if config.use_weather:
+        combined = _add_weather_lag_features(combined)
+    combined["unique_id"] = config.unique_id
 
     futr_df = combined[combined["ds"].isin(future_dates)].copy()
-    if futr_df[EXOG_COLS].isna().any().any():
-        missing_cols = futr_df[EXOG_COLS].columns[
-            futr_df[EXOG_COLS].isna().any()
+    if futr_df[exog_cols].isna().any().any():
+        missing_cols = futr_df[exog_cols].columns[
+            futr_df[exog_cols].isna().any()
         ].tolist()
         raise ValueError(
             "Fitur eksogen future belum lengkap. "
             f"Kolom bermasalah: {missing_cols}"
         )
 
-    train_df["unique_id"] = UNIQUE_ID
+    train_df["unique_id"] = config.unique_id
     train_df = train_df.rename(columns={TARGET: "y"})
 
     return (
-        train_df[MODEL_INPUT_COLUMNS],
-        futr_df[FUTURE_INPUT_COLUMNS].reset_index(drop=True)
+        train_df[["unique_id", "ds", "y"] + exog_cols],
+        futr_df[["unique_id", "ds"] + exog_cols].reset_index(drop=True)
     )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -455,7 +567,8 @@ def build_prediction_input_datasets(
     end_date: str,
     headless: bool = True,
     history_weeks: int = FETCH_HISTORY_WEEKS,
-    run_id: int | None = None
+    run_id: int | None = None,
+    config: CommodityConfig | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Pipeline input inference model produksi NBEATSx.
@@ -467,7 +580,7 @@ def build_prediction_input_datasets(
     futr_df
         Kolom: unique_id, ds, dan EXOG_COLS untuk HORIZON minggu ke depan.
     """
-
+    config = config or get_commodity_config()
     end_ts = pd.to_datetime(end_date)
     fetch_start_ts = end_ts - timedelta(weeks=history_weeks)
     fetch_start_date = fetch_start_ts.strftime("%Y-%m-%d")
@@ -484,7 +597,8 @@ def build_prediction_input_datasets(
         start_date=fetch_start_date,
         end_date=end_date,
         headless=headless,
-        run_id=run_id
+        run_id=run_id,
+        config=config,
     )
 
     df_hijri_weekly = generate_hijri_features(
@@ -496,7 +610,8 @@ def build_prediction_input_datasets(
     result = build_train_and_future_from_daily(
         bandung_garut=df_daily,
         hijri_weekly=df_hijri_weekly,
-        horizon=HORIZON
+        horizon=HORIZON,
+        config=config,
     )
 
     if run_id:
@@ -566,16 +681,30 @@ def predict_future_prices(
     train_df: pd.DataFrame,
     futr_df: pd.DataFrame,
     model_dir: str | Path = DEFAULT_MODEL_DIR,
-    model_name: str = MODEL_NAME
+    model_name: str = MODEL_NAME,
+    config: CommodityConfig | None = None,
 ) -> pd.DataFrame:
     """
     Jalankan prediksi 4 minggu ke depan memakai model tersimpan.
     """
+    config = config or get_commodity_config()
+    model_dir = Path(model_dir)
 
-    nf_model = load_saved_forecast_model(model_dir)
-    prediction_df = nf_model.predict(df=train_df, futr_df=futr_df)
+    if config.model_type == "prophet":
+        model_path = model_dir / "prophet.pkl"
+        if not model_path.exists():
+            raise FileNotFoundError(f"File model Prophet tidak ditemukan: {model_path}")
+        with open(model_path, "rb") as file:
+            prophet_model = pickle.load(file)
+        pred_input = futr_df[["ds"] + list(config.exog_cols)].copy()
+        prophet_forecast = prophet_model.predict(pred_input)
+        prediction_df = futr_df[["unique_id", "ds"]].copy()
+        prediction_df["predicted_price"] = prophet_forecast["yhat"].values
+    else:
+        nf_model = load_saved_forecast_model(model_dir)
+        prediction_df = nf_model.predict(df=train_df, futr_df=futr_df)
 
-    if model_name not in prediction_df.columns:
+    if "predicted_price" not in prediction_df.columns and model_name not in prediction_df.columns:
         candidate_cols = [
             col for col in prediction_df.columns
             if col not in {"unique_id", "ds"}
@@ -587,9 +716,10 @@ def predict_future_prices(
             )
         model_name = candidate_cols[0]
 
-    prediction_df = prediction_df.rename(
-        columns={model_name: "predicted_price"}
-    )
+    if "predicted_price" not in prediction_df.columns:
+        prediction_df = prediction_df.rename(
+            columns={model_name: "predicted_price"}
+        )
     prediction_df["predicted_price"] = (
         prediction_df["predicted_price"]
         .clip(lower=0)
@@ -608,9 +738,17 @@ def predict_future_prices(
         for _, row in prediction_df.iterrows():
             target_date = pd.to_datetime(row["ds"]).strftime("%Y-%m-%d")
             conn.execute("""
-                INSERT OR REPLACE INTO forecasts (forecast_date, target_date, predicted_price, model_version)
-                VALUES (?, ?, ?, ?)
-            """, (forecast_date, target_date, float(row["predicted_price"]), "NBEATSx"))
+                INSERT OR REPLACE INTO forecasts
+                    (forecast_date, target_date, predicted_price, model_version, commodity, market)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                forecast_date,
+                target_date,
+                float(row["predicted_price"]),
+                _model_version(config),
+                config.commodity,
+                config.market,
+            ))
         conn.commit()
         conn.close()
         print(f"[DATABASE] Forecasts saved to SQLite for forecast_date={forecast_date}.")
@@ -623,13 +761,14 @@ def predict_future_prices(
 def build_procurement_signal(
     train_df: pd.DataFrame,
     prediction_df: pd.DataFrame,
-    model_name: str = MODEL_NAME
+    model_name: str = MODEL_NAME,
+    config: CommodityConfig | None = None,
 ) -> dict:
     """
     Bentuk ringkasan sinyal pengadaan untuk dashboard UMKM.
     Logika mengikuti notebook: rata-rata prediksi 4 minggu vs harga terakhir.
     """
-
+    config = config or get_commodity_config()
     train_sorted = train_df.sort_values("ds")
     pred_sorted = prediction_df.sort_values("ds")
 
@@ -668,6 +807,9 @@ def build_procurement_signal(
 
     return {
         "model_name": model_name,
+        "commodity": config.commodity,
+        "commodity_slug": config.slug,
+        "market": config.market,
         "horizon_weeks": len(pred_sorted),
         "last_actual_date": last_actual_date,
         "last_actual_price": round(last_price),
@@ -685,13 +827,14 @@ def build_procurement_signal(
 def build_prediction_report(
     train_df: pd.DataFrame,
     futr_df: pd.DataFrame,
-    prediction_df: pd.DataFrame
+    prediction_df: pd.DataFrame,
+    config: CommodityConfig | None = None,
 ) -> dict:
     """
     Gabungkan histori, prediksi, fitur future, dan sinyal untuk konsumsi web.
     """
-
-    summary = build_procurement_signal(train_df, prediction_df)
+    config = config or get_commodity_config()
+    summary = build_procurement_signal(train_df, prediction_df, model_name=config.model_name, config=config)
     last_price = float(summary["last_actual_price"])
 
     forecast_df = (
@@ -722,6 +865,7 @@ def build_prediction_report(
         "forecast_df": forecast_df,
         "train_df": train_df,
         "futr_df": futr_df,
+        "config": config,
     }
 
 
@@ -729,13 +873,15 @@ def run_narapangan_pipeline(
     end_date: str | None = None,
     headless: bool = True,
     model_dir: str | Path = DEFAULT_MODEL_DIR,
-    run_id: int | None = None
+    run_id: int | None = None,
+    commodity_slug: str | None = None,
 ) -> dict:
     """
     One-call pipeline untuk web app:
     ambil data terbaru, siapkan input model, prediksi, lalu buat sinyal.
     """
-
+    config = get_commodity_config(commodity_slug)
+    model_dir = config.model_dir if model_dir == DEFAULT_MODEL_DIR else model_dir
     if end_date is None:
         end_date = pd.Timestamp.today().strftime("%Y-%m-%d")
 
@@ -743,7 +889,8 @@ def run_narapangan_pipeline(
         train_df, futr_df = build_prediction_input_datasets(
             end_date=end_date,
             headless=headless,
-            run_id=run_id
+            run_id=run_id,
+            config=config,
         )
         
         if run_id:
@@ -752,7 +899,9 @@ def run_narapangan_pipeline(
         prediction_df = predict_future_prices(
             train_df=train_df,
             futr_df=futr_df,
-            model_dir=model_dir
+            model_dir=model_dir,
+            model_name=config.model_name,
+            config=config,
         )
         
         if run_id:
@@ -762,7 +911,8 @@ def run_narapangan_pipeline(
         report = build_prediction_report(
             train_df=train_df,
             futr_df=futr_df,
-            prediction_df=prediction_df
+            prediction_df=prediction_df,
+            config=config,
         )
         
         # Note: payload success is logged in the caller after build_web_payload
@@ -789,13 +939,20 @@ def build_web_payload(pipeline_result: dict) -> dict:
     Ubah output run_narapangan_pipeline menjadi dict JSON-friendly.
     Cocok untuk Streamlit, FastAPI, atau frontend lain.
     """
-
+    config = pipeline_result.get("config") or get_commodity_config()
     summary = pipeline_result["summary"].copy()
     last_actual_date = summary.get("last_actual_date")
     if hasattr(last_actual_date, "strftime"):
         summary["last_actual_date"] = last_actual_date.strftime("%Y-%m-%d")
 
     return {
+        "commodity": {
+            "slug": config.slug,
+            "name": config.commodity,
+            "display_name": config.display_name,
+            "market": config.market,
+            "model_name": config.model_name,
+        },
         "summary": summary,
         "history": _dataframe_to_web_records(pipeline_result["history_df"]),
         "forecast": _dataframe_to_web_records(pipeline_result["forecast_df"]),
@@ -804,47 +961,104 @@ def build_web_payload(pipeline_result: dict) -> dict:
 
 CACHE_PAYLOAD_FILE = PROJECT_BACKEND_DIR / "data_cache" / "latest_payload.json"
 
-def save_payload_to_cache(payload: dict) -> None:
+
+def _payload_cache_file(config: CommodityConfig | None = None) -> Path:
+    config = config or get_commodity_config()
+    if config.slug == "cabai-rawit-merah":
+        return CACHE_PAYLOAD_FILE
+    return PROJECT_BACKEND_DIR / "data_cache" / f"latest_payload_{config.slug}.json"
+
+def save_payload_to_cache(payload: dict, commodity_slug: str | None = None) -> None:
     """Saves the compiled forecast payload dict to the data_cache directory as JSON."""
     try:
         import json
-        cache_dir = CACHE_PAYLOAD_FILE.parent
+        payload_slug = (payload.get("commodity") or {}).get("slug")
+        config = get_commodity_config(commodity_slug or payload_slug)
+        cache_file = _payload_cache_file(config)
+        cache_dir = cache_file.parent
         cache_dir.mkdir(parents=True, exist_ok=True)
         
         # Make a copy and ensure dates are strings
         save_data = payload.copy()
         
-        with open(CACHE_PAYLOAD_FILE, "w", encoding="utf-8") as f:
+        with open(cache_file, "w", encoding="utf-8") as f:
             json.dump(save_data, f, ensure_ascii=False, indent=2)
-        print(f"[CACHE] Payload saved successfully to {CACHE_PAYLOAD_FILE}")
+        print(f"[CACHE] Payload saved successfully to {cache_file}")
     except Exception as e:
         print(f"[CACHE] Error saving payload to cache: {e}")
 
-def load_payload_from_cache() -> dict | None:
+def load_payload_from_cache(commodity_slug: str | None = None) -> dict | None:
     """Loads the cached forecast payload dict from the data_cache directory."""
     try:
         import json
-        if not CACHE_PAYLOAD_FILE.exists():
+        cache_file = _payload_cache_file(get_commodity_config(commodity_slug))
+        if not cache_file.exists():
             return None
             
-        with open(CACHE_PAYLOAD_FILE, "r", encoding="utf-8") as f:
+        with open(cache_file, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception as e:
         print(f"[CACHE] Error reading payload from cache: {e}")
         return None
 
-def reconstruct_web_payload_from_db(forecast_date: str | None = None) -> dict | None:
+def _price_rows_to_weekly_train_df(price_rows, config: CommodityConfig | None = None) -> pd.DataFrame:
+    """
+    Converts cached daily price rows into the same weekly shape used by inference.
+    """
+    config = config or get_commodity_config()
+    price_df = pd.DataFrame(
+        [
+            {
+                "Tanggal": pd.to_datetime(row["date"]),
+                TARGET: float(row["price_per_kg"]),
+            }
+            for row in price_rows
+        ]
+    )
+    if price_df.empty:
+        return pd.DataFrame(columns=["unique_id", "ds", "y"])
+
+    last_daily_date = price_df["Tanggal"].max().normalize()
+    weekly = (
+        price_df
+        .set_index("Tanggal")
+        .resample(FREQ)
+        .mean(numeric_only=True)
+        .reset_index()
+        .rename(columns={"Tanggal": "ds", TARGET: "y"})
+    )
+    weekly = (
+        weekly[weekly["ds"] <= last_daily_date]
+        .dropna(subset=["y"])
+        .sort_values("ds")
+        .tail(52)
+        .reset_index(drop=True)
+    )
+    weekly["unique_id"] = config.unique_id
+
+    return weekly[["unique_id", "ds", "y"]]
+
+def reconstruct_web_payload_from_db(
+    forecast_date: str | None = None,
+    commodity_slug: str | None = None,
+) -> dict | None:
     """
     Reconstructs the full web payload from SQLite database tables (prices, forecasts)
     without running the ML model or the scraper. Runs in <10ms.
     """
     try:
+        config = get_commodity_config(commodity_slug)
         conn = get_connection()
         cursor = conn.cursor()
 
         # If forecast_date is not specified, get the latest one from the database
         if forecast_date is None:
-            cursor.execute("SELECT MAX(forecast_date) FROM forecasts")
+            cursor.execute("""
+                SELECT MAX(forecast_date)
+                FROM forecasts
+                WHERE commodity = ? AND market = ?
+                  AND model_version IN (?, ?)
+            """, (config.commodity, config.market, _model_version(config), config.model_name))
             row = cursor.fetchone()
             if not row or not row[0]:
                 conn.close()
@@ -856,32 +1070,30 @@ def reconstruct_web_payload_from_db(forecast_date: str | None = None) -> dict | 
         cursor.execute("""
             SELECT date, price_per_kg 
             FROM prices 
-            WHERE commodity = 'Cabai Rawit Merah' AND market = 'Pasar Caringin'
+            WHERE commodity = ? AND market = ?
               AND date <= ?
             ORDER BY date ASC
-        """, (forecast_date,))
+        """, (config.commodity, config.market, forecast_date))
         price_rows = cursor.fetchall()
         if not price_rows:
             conn.close()
             return None
 
-        # Build train_df representation
-        train_data = []
-        for r in price_rows:
-            train_data.append({
-                "unique_id": UNIQUE_ID,
-                "ds": pd.to_datetime(r["date"]),
-                "y": float(r["price_per_kg"])
-            })
-        train_df = pd.DataFrame(train_data)
+        train_df = _price_rows_to_weekly_train_df(price_rows, config=config)
+        if train_df.empty:
+            conn.close()
+            return None
 
         # 2. Fetch forecasts
         cursor.execute("""
             SELECT target_date, predicted_price
             FROM forecasts
-            WHERE forecast_date = ? AND model_version = 'NBEATSx'
+            WHERE forecast_date = ?
+              AND commodity = ?
+              AND market = ?
+              AND model_version IN (?, ?)
             ORDER BY target_date ASC
-        """, (forecast_date,))
+        """, (forecast_date, config.commodity, config.market, _model_version(config), config.model_name))
         forecast_rows = cursor.fetchall()
         if not forecast_rows:
             conn.close()
@@ -890,7 +1102,7 @@ def reconstruct_web_payload_from_db(forecast_date: str | None = None) -> dict | 
         pred_data = []
         for r in forecast_rows:
             pred_data.append({
-                "unique_id": UNIQUE_ID,
+                "unique_id": config.unique_id,
                 "ds": pd.to_datetime(r["target_date"]),
                 "predicted_price": float(r["predicted_price"])
             })
@@ -904,13 +1116,17 @@ def reconstruct_web_payload_from_db(forecast_date: str | None = None) -> dict | 
         # generate_hijri_features freq must match W-MON
         futr_df = generate_hijri_features(start_target, end_target, freq="W-MON")
         futr_df["ds"] = pd.to_datetime(futr_df["ds"])
-        futr_df["unique_id"] = UNIQUE_ID
+        futr_df["unique_id"] = config.unique_id
+        missing_exog_cols = [col for col in config.exog_cols if col not in futr_df.columns]
+        for col in missing_exog_cols:
+            futr_df[col] = None
 
         # Reconstruct the prediction report
         report = build_prediction_report(
             train_df=train_df,
             futr_df=futr_df,
-            prediction_df=prediction_df
+            prediction_df=prediction_df,
+            config=config,
         )
 
         # Build web payload
