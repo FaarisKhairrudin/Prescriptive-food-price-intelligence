@@ -20,7 +20,8 @@ from backend.pipeline.main_pipeline import (
     run_narapangan_pipeline,
     load_payload_from_cache,
     save_payload_to_cache,
-    reconstruct_web_payload_from_db
+    reconstruct_web_payload_from_db,
+    _model_version
 )
 
 from backend.database import get_connection, create_pipeline_run, update_pipeline_stage, complete_pipeline_run, DATABASE_PATH, init_db
@@ -576,6 +577,11 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                 self._send_json(401, {"error": "Sesi kedaluwarsa atau tidak sah. Silakan login kembali."})
                 return
 
+            from urllib.parse import parse_qs
+            query_params = parse_qs(urlparse(self.path).query)
+            commodity_slug = query_params.get("commodity", ["cabai-rawit-merah"])[0]
+            config = get_commodity_config(commodity_slug)
+
             try:
                 conn = get_connection()
                 cursor = conn.cursor()
@@ -588,19 +594,24 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                         p_forecast.price_per_kg AS baseline_price
                     FROM forecasts f
                     JOIN prices p_target ON f.target_date = p_target.date 
-                        AND p_target.commodity = 'Cabai Rawit Merah' 
-                        AND p_target.market = 'Pasar Caringin'
+                        AND p_target.commodity = ? 
+                        AND p_target.market = ?
                     LEFT JOIN prices p_forecast ON f.forecast_date = p_forecast.date 
-                        AND p_forecast.commodity = 'Cabai Rawit Merah' 
-                        AND p_forecast.market = 'Pasar Caringin'
+                        AND p_forecast.commodity = ? 
+                        AND p_forecast.market = ?
                     INNER JOIN (
                         SELECT target_date, MAX(forecast_date) as max_forecast_date
                         FROM forecasts
-                        WHERE model_version = 'NBEATSx'
+                        WHERE commodity = ? AND market = ? AND model_version IN (?, ?)
                         GROUP BY target_date
                     ) latest ON f.target_date = latest.target_date AND f.forecast_date = latest.max_forecast_date
                     ORDER BY f.target_date DESC
-                """)
+                """, (
+                    config.commodity, config.market,
+                    config.commodity, config.market,
+                    config.commodity, config.market,
+                    _model_version(config), config.model_name
+                ))
                 rows = cursor.fetchall()
 
                 history = []
@@ -630,10 +641,10 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                         cursor2 = conn.cursor()
                         cursor2.execute("""
                             SELECT price_per_kg FROM prices
-                            WHERE commodity = 'Cabai Rawit Merah' AND market = 'Pasar Caringin'
+                            WHERE commodity = ? AND market = ?
                               AND date <= ?
                             ORDER BY date DESC LIMIT 1
-                        """, (row["forecast_date"],))
+                        """, (config.commodity, config.market, row["forecast_date"]))
                         fb = cursor2.fetchone()
                         if fb:
                             baseline = fb["price_per_kg"]
@@ -672,7 +683,9 @@ class NarapanganHandler(BaseHTTPRequestHandler):
                         "mape": round(mape, 4),
                         "rmse": round(rmse, 2),
                         "da": round(da, 4),
-                        "n_points": n
+                        "n_points": n,
+                        "commodity": config.display_name,
+                        "market": config.market
                     },
                     "accuracy_history": history
                 })

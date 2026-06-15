@@ -3,7 +3,7 @@ import { formatRp, formatDate } from "../utils/helpers";
 import { useAppContext } from "../context/AppContext";
 
 export function RiwayatPage() {
-  const { token } = useAppContext();
+  const { token, selectedCommodity } = useAppContext();
   const [auditData, setAuditData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
@@ -13,7 +13,7 @@ export function RiwayatPage() {
       setIsLoading(true);
       setError("");
       try {
-        const res = await fetch("/api/predict/audit", {
+        const res = await fetch(`/api/predict/audit?commodity=${selectedCommodity}`, {
           headers: { "Authorization": `Bearer ${token}` }
         });
         const data = await res.json();
@@ -32,7 +32,7 @@ export function RiwayatPage() {
     if (token) {
       fetchAudit();
     }
-  }, [token]);
+  }, [token, selectedCommodity]);
 
   const { summary = {}, accuracy_history = [] } = auditData || {};
 
@@ -103,7 +103,7 @@ export function RiwayatPage() {
             <div className="riwayat-header">
               <h3 className="riwayat-title">Seberapa tepat tebakan AI?</h3>
               <p className="riwayat-subtitle">
-                Membandingkan harga yang ditebak AI vs harga yang benar-benar terjadi di pasar (Pasar Caringin)
+                Membandingkan harga yang ditebak AI vs harga yang benar-benar terjadi di pasar ({summary.market || "Pasar Caringin"}) untuk komoditas {summary.commodity || "Cabai Rawit Merah"}
               </p>
             </div>
 
