@@ -1,6 +1,6 @@
 # Narapangan — AI-Powered Chilli Price Forecasting for UMKM
 
-**Capstone Project** — Institut Teknologi Bandung (2026)
+**Capstone Project** — Telkom University Bandung (2026)
 
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python)](https://python.org)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react)](https://react.dev)
@@ -276,7 +276,7 @@ npm install --prefix frontend
 
 ## Academic Context
 
-This project was developed as a **Capstone Project** at **Institut Teknologi Bandung** (2026). The work included:
+This project was developed as a **Capstone Project** at **Telkom University Bandung** (2026). The work included:
 
 - Data science: scraping, cleaning, feature engineering, 5-model comparison
 - Machine learning: time-series forecasting with exogenous variables
